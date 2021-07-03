@@ -1,2 +1,3 @@
 python-telegram-bot
 akinator.py
+pymongo
