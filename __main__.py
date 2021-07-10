@@ -56,9 +56,9 @@ def aki_play_callback_handler(update: Update, context:CallbackContext) -> None:
     updateTotalQuestions(user_id, context.user_data[f"ques_{user_id}"])
     context.user_data[f"ques_{user_id}"] = context.user_data[f"ques_{user_id}"] + 1
     query = update.callback_query
-    query.answer()
     a = query.data.split('_')[-1]
     q = aki.answer(a)
+    query.answer()
     if aki.progression < 80:
         query.message.edit_media(
             InputMediaPhoto(
