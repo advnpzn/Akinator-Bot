@@ -170,7 +170,7 @@ def del_data(context:CallbackContext, user_id: int):
     del context.user_data[f"ques_{user_id}"]
 
 def main():
-    updater = Updater(token=BOT_TOKEN, user_sig_handler=del_data)
+    updater = Updater(token=BOT_TOKEN)
     dp = updater.dispatcher
     dp.add_handler(CommandHandler('start', aki_start, run_async=True))
     dp.add_handler(CommandHandler('find', aki_find, run_async=True))
