@@ -1,0 +1,33 @@
+{
+  "name": "AKINATOR BOT",
+  "description": "A telegram bot made with python, to play Akinator game",
+  "logo": "https://telegra.ph/file/a180962aa6ffd43f0c698.jpg",
+    "keywords": [
+    "telegram",
+    "Bot",
+    "Akinator"
+  ],
+  "repository": "https://github.com/adenosinetp10/Akinator-Bot",
+  "website": "https://github.com/adenosinetp10",
+  "success_url": "https://t.me/atpnull",
+  "env": {
+    "aki_mongo_host": {
+      "description": "Put your MONGODB url",
+      "value": "",
+      "required": true
+    },
+    "bot_token": {
+      "description": "Your bot token",
+      "value": "",
+      "required": true
+    }
+  },
+  "addons": [
+    {
+      "plan": "heroku-postgresql",
+      "options": {
+        "version": "12"
+      }
+    }
+  ]
+}
