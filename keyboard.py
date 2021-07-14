@@ -62,6 +62,8 @@ AKI_PLAY_KEYBOARD = InlineKeyboardMarkup(
         [
             InlineKeyboardButton("I don't know", callback_data='aki_play_2'),
             InlineKeyboardButton("Probably Not", callback_data='aki_play_4')
+        ],
+        [   InlineKeyboardButton("Back", callback_data= 'aki_play_5')
         ]
     ]
 )

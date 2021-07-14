@@ -163,5 +163,6 @@ def updateTotalQuestions(user_id: int, total_questions: int) -> None:
     """
     
     """
+    total_questions = total_questions+ getTotalQuestions(user_id)
     my_db["users"].update_one({"user_id": user_id}, {"$set": {"total_questions": total_questions}})
 

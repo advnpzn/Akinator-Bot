@@ -1,4 +1,4 @@
-from os import cpu_count
+from os import cpu_count, terminal_size
 import akinator
 from telegram.files.inputmedia import InputMediaPhoto
 from random import randint
@@ -8,7 +8,7 @@ from telegram import Update, ParseMode
 from telegram.ext import Updater, CommandHandler, CallbackContext, CallbackQueryHandler
 from config import BOT_TOKEN
 from database import addUser, getChildMode, getCorrectGuess, getLanguage, getTotalGuess, getTotalQuestions, getUnfinishedGuess, getUser, getWrongGuess, totalUsers, updateChildMode, updateCorrectGuess, updateLanguage, updateTotalGuess, updateTotalQuestions, updateWrongGuess
-from strings import AKI_LANG_CODE, AKI_LANG_MSG, CHILDMODE_MSG, ME_MSG, START_MSG
+from strings import AKI_FIRST_QUESTION, AKI_LANG_CODE, AKI_LANG_MSG, CHILDMODE_MSG, ME_MSG, START_MSG
 import akinator
 
 
@@ -53,11 +53,18 @@ def aki_play_callback_handler(update: Update, context:CallbackContext) -> None:
     user_id = update.effective_user.id
     aki = context.user_data[f"aki_{user_id}"]
     q = context.user_data[f"q_{user_id}"]
-    updateTotalQuestions(user_id, context.user_data[f"ques_{user_id}"])
-    context.user_data[f"ques_{user_id}"] = context.user_data[f"ques_{user_id}"] + 1
+    updateTotalQuestions(user_id, 1)
     query = update.callback_query
     a = query.data.split('_')[-1]
-    q = aki.answer(a)
+    if a == '5':
+        updateTotalQuestions(user_id, -1)
+        try:
+            q = aki.back()
+        except akinator.exceptions.CantGoBackAnyFurther:
+            query.answer(text=AKI_FIRST_QUESTION, show_alert=True)
+            return
+    else:
+        q = aki.answer(a)
     query.answer()
     if aki.progression < 80:
         query.message.edit_media(
@@ -167,7 +174,6 @@ def aki_set_child_mode(update: Update, context: CallbackContext) -> None:
 def del_data(context:CallbackContext, user_id: int):
     del context.user_data[f"aki_{user_id}"]
     del context.user_data[f"q_{user_id}"]
-    del context.user_data[f"ques_{user_id}"]
 
 def main():
     updater = Updater(token=BOT_TOKEN)
