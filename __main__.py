@@ -3,11 +3,28 @@ import akinator
 from telegram.files.inputmedia import InputMediaPhoto
 from random import randint
 from pprint import pprint
-from keyboard import AKI_LANG_BUTTON, AKI_PLAY_KEYBOARD, AKI_WIN_BUTTON, CHILDMODE_BUTTON, START_KEYBOARD
+from keyboard import AKI_LANG_BUTTON, AKI_LEADERBOARD_KEYBOARD, AKI_PLAY_KEYBOARD, AKI_WIN_BUTTON, CHILDMODE_BUTTON, START_KEYBOARD
 from telegram import Update, ParseMode
 from telegram.ext import Updater, CommandHandler, CallbackContext, CallbackQueryHandler
 from config import BOT_TOKEN
-from database import addUser, getChildMode, getCorrectGuess, getLanguage, getTotalGuess, getTotalQuestions, getUnfinishedGuess, getUser, getWrongGuess, totalUsers, updateChildMode, updateCorrectGuess, updateLanguage, updateTotalGuess, updateTotalQuestions, updateWrongGuess
+from database import (
+    addUser, 
+    getChildMode, 
+    getCorrectGuess, 
+    getLanguage, 
+    getLead, 
+    getTotalGuess, 
+    getTotalQuestions, 
+    getUnfinishedGuess, 
+    getUser, getWrongGuess, 
+    totalUsers, 
+    updateChildMode, 
+    updateCorrectGuess, 
+    updateLanguage, 
+    updateTotalGuess, 
+    updateTotalQuestions, 
+    updateWrongGuess)
+
 from strings import AKI_FIRST_QUESTION, AKI_LANG_CODE, AKI_LANG_MSG, CHILDMODE_MSG, ME_MSG, START_MSG
 import akinator
 
@@ -175,6 +192,53 @@ def del_data(context:CallbackContext, user_id: int):
     del context.user_data[f"aki_{user_id}"]
     del context.user_data[f"q_{user_id}"]
 
+
+def aki_lead(update: Update, _:CallbackContext) -> None:
+    update.message.reply_text(
+        text="Check Leaderboard on specific categories in Akinator.",
+        reply_markup=AKI_LEADERBOARD_KEYBOARD
+    )
+
+
+def get_lead_total(lead_list: list, lead_category: str) -> str:
+    lead = f'Top 10 {lead_category} are :\n'
+    for i in lead_list:
+        lead = lead+f"{i[0]} : {i[1]}\n"
+    return lead
+
+
+def aki_lead_cb_handler(update: Update, context:CallbackContext) -> None:
+    query = update.callback_query
+    query.answer()
+    data = query.data.split('_')[-1]
+    #print(data)
+    if data == 'cguess':
+        text = get_lead_total(getLead("correct_guess"), 'correct guesses')
+        query.edit_message_text(
+            text= text,
+            reply_markup=AKI_LEADERBOARD_KEYBOARD
+        )
+    elif data == 'tguess':
+        text = get_lead_total(getLead("total_guess"), 'total guesses')
+        query.edit_message_text(
+            text= text,
+            reply_markup=AKI_LEADERBOARD_KEYBOARD
+        )
+    elif data == 'wguess':
+        text = get_lead_total(getLead("wrong_guess"), 'wrong guesses')
+        query.edit_message_text(
+            text= text,
+            reply_markup=AKI_LEADERBOARD_KEYBOARD
+        )
+    elif data == 'tquestions':
+        text = get_lead_total(getLead("total_questions"), 'total questions')
+        query.edit_message_text(
+            text= text,
+            reply_markup=AKI_LEADERBOARD_KEYBOARD
+        )
+
+
+
 def main():
     updater = Updater(token=BOT_TOKEN)
     dp = updater.dispatcher
@@ -184,11 +248,13 @@ def main():
     dp.add_handler(CommandHandler('play', aki_play_cmd_handler, run_async=True))
     dp.add_handler(CommandHandler('language', aki_lang, run_async=True))
     dp.add_handler(CommandHandler('childmode', aki_childmode, run_async=True))
+    dp.add_handler(CommandHandler('leaderboard', aki_lead, run_async=True))
 
     dp.add_handler(CallbackQueryHandler(aki_set_lang, pattern=r"aki_set_lang_", run_async=True))
     dp.add_handler(CallbackQueryHandler(aki_set_child_mode, pattern=r"c_mode_", run_async=True))
     dp.add_handler(CallbackQueryHandler(aki_play_callback_handler, pattern=r"aki_play_", run_async=True))
     dp.add_handler(CallbackQueryHandler(aki_win, pattern=r"aki_win_", run_async=True))
+    dp.add_handler(CallbackQueryHandler(aki_lead_cb_handler, pattern=r"aki_lead_", run_async=True))
 
     updater.start_polling()
     updater.idle()

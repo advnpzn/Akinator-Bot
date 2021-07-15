@@ -87,9 +87,6 @@ AKI_LEADERBOARD_KEYBOARD = InlineKeyboardMarkup(
         [
             InlineKeyboardButton("Wrong Guesses", callback_data='aki_lead_wguess'),
             InlineKeyboardButton("Total Questions", callback_data='aki_lead_tquestions'),
-        ],
-        [
-            InlineKeyboardButton("back", callback_data='aki_lead_back')
         ]
     ]
 )
