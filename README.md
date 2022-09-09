@@ -56,6 +56,6 @@ Akinator uses **MongoDB** by default to store the user stats such as number of g
 
 ## Credits
 
- 1. [NinjaSnail1080's Akinator.py](https://github.com/NinjaSnail1080/akinator.py)
+ 1. [Infiniticity's Akinator.py (`akinator` on PyPI)](https://github.com/Infiniticity/akinator.py)
  2. [python-telegram-bot](https://github.com/python-telegram-bot/python-telegram-bot)
  3. [hellboi-atul](https://github.com/hellboi-atul) for heroku deploy button.
