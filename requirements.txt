@@ -2,3 +2,4 @@ python-telegram-bot
 akinator.py
 pymongo
 dnspython
+python-dotenv
