@@ -1,5 +1,6 @@
+from distutils.command.config import LANG_EXT
 from os import cpu_count, terminal_size
-import akinator
+from akinator import Akinator
 from telegram.files.inputmedia import InputMediaPhoto
 from random import randint
 from pprint import pprint
@@ -48,9 +49,11 @@ def aki_find(update: Update, context: CallbackContext) -> None:
 
 
 def aki_play_cmd_handler(update: Update, context: CallbackContext) -> None:
+
     #/play command.
-    aki = akinator.Akinator()
+
     user_id = update.effective_user.id
+    aki = Akinator()
     msg = update.message.reply_photo(
         photo=open('aki_pics/aki_01.png', 'rb'),
         caption="Loading..."
