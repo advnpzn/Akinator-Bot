@@ -19,7 +19,7 @@ ME_MSG = """
 """
 
 GITHUB_URL = "https://github.com/adenosinetp10"
-DEV_URL = "https://t.me/atpnull"
+DEV_URL = "https://t.me/f22raptor_uwu"
 
 AKI_LANG_CODE = {
     'en': 'English',
