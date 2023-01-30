@@ -1,9 +1,13 @@
-FROM python:latest
+FROM python:3.9-slim
 
 
-RUN git clone https://github.com/adenosinetp10/Akinator-Bot.git /Akinator
-WORKDIR /Akinator
-RUN python -m pip install --upgrade pip
-RUN python -m pip install --no-cache-dir -r /Akinator/requirements.txt
-CMD python3 __main__.py
+WORKDIR /app
+
+COPY requirements.txt requirements.txt
+
+RUN pip install -r requirements.txt
+
+COPY  . .
+
+CMD [ "python", "__main__.py"]
 
