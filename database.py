@@ -1,9 +1,7 @@
 from pprint import pprint
 from typing import Any
 from pymongo import MongoClient
-from telegram import user
 from config import AKI_MONGO_HOST
-import itertools
 
 my_client = MongoClient(host=AKI_MONGO_HOST)
 my_db = my_client["aki-db"]
