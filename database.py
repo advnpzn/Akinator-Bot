@@ -1,4 +1,3 @@
-from pprint import pprint
 from typing import Any
 from pymongo import MongoClient
 from config import AKI_MONGO_HOST
