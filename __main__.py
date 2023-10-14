@@ -166,7 +166,10 @@ async def aki_play_callback_handler(update: Update, context:CallbackContext) -> 
         except akinator.exceptions.AkiTimedOut:
             await query.answer(text="Akinator timed out, please /play again", show_alert=True)
     else:
-        q = aki.answer(a)
+        try:
+            q = aki.answer(a)
+        except akinator.exceptions.AkiTimedOut:
+            await query.answer(text="Akinator timed out, please /play again", show_alert=True)
         
     query.answer()
     if aki.progression < 80:
