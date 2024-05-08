@@ -1,9 +1,12 @@
 from typing import Any
-from pymongo import MongoClient
+from pymongo import MongoClient, database
 from config import AKI_MONGO_HOST
 
-my_client = MongoClient(host=AKI_MONGO_HOST)
-my_db = my_client["aki-db"]
+try:
+    my_client = MongoClient(host=AKI_MONGO_HOST)
+    my_db = my_client["aki-db"]
+except Exception as e:
+    print("Error: ", e)
 
 
 def addUser(user_id: int, first_name: str, last_name: str, user_name: str) -> None:
