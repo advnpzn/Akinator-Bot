@@ -19,3 +19,10 @@ coverage.xml
 .pytest_cache
 .hypothesis
 venv
+compose.yml
+Dockerfile
+Procfile
+app.json
+.git
+.gitignore
+data
