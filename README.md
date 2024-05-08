@@ -3,13 +3,34 @@ A Telegram bot where you can play the Akinator Guessing game
 check out [Akinator](https://t.me/aki_akinator_bot) on Telegram.
 If the bot is offline, contact me on telegram, so that I can look into it.
 
-# Deployments
+# Self Host (Containers)
+Create a `.env` file and fill up the following in it.
+```
+BOT_TOKEN=<your-bot-token>
+
+# Mongo DB Username and Password
+MONGO_ROOT_USER=admin
+MONGO_ROOT_PASSWORD=admin
+
+# Mongo Express Username and Password
+MONGOEXPRESS_LOGIN=admin
+MONGOEXPRESS_PASSWORD=admin
+```
+Change the username & password for MongoDB and MongoExpress as you like above.
+
+Put the `compose.yml` in the same directory where `.env` file is present.
+After that, run the following:
+```
+docker compose up -d
+```
+# Cloud Deployments (I'm not sure if this still works)
+
 [![Deploy](https://www.herokucdn.com/deploy/button.svg)](https://dashboard.heroku.com/new?button-url=https%3A%2F%2Fgithub.com%2Fadenosinetp10%2FAkinator-bot&template=https%3A%2F%2Fgithub.com%2Fadenosinetp10%2FAkinator-bot
 )
 
 [![Deploy on Railway](https://railway.app/button.svg)](https://railway.app/new/template?template=https%3A%2F%2Fgithub.com%2Fadenosinetp10%2FAkinator-Bot&envs=aki_mongo_host%2Cbot_token&aki_mongo_hostDesc=mongoDB+URI+for+accessing+database.&bot_tokenDesc=Telegram+Bot+token+obtained+from+BotFather&referralCode=9C9po6)
 
-## Setting up the database
+## Setting up the database (In MondoDB Atlas if you don't wanna self host the Database)
 
 Akinator uses **MongoDB** by default to store the user stats such as number of games won, abandoned, played and their telegram provided info and also to facilitate for the leaderboard function. MongoDB is easy to set up and work with, noSQL is easy compared to SQL. MongoDB even offers free cloud database for small use. You can create a local mongoDB cluster or use the online mongoDB Atlas to start.. Here, the scope of the following steps is to follow on the footpath of the online setup using mongoDB Atlas.
 
