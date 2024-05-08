@@ -1,5 +1,5 @@
 from typing import Any
-from pymongo import MongoClient, database
+from pymongo import MongoClient
 from config import AKI_MONGO_HOST
 
 try:
