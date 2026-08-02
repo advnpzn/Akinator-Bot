@@ -151,9 +151,20 @@ def leaderboard_page_keyboard(
     return InlineKeyboardMarkup(rows)
 
 
-def inline_start_keyboard(session_id: str) -> InlineKeyboardMarkup:
+def inline_start_keyboard(session_id: str, owner_id: int) -> InlineKeyboardMarkup:
+    """Start button encodes the owner so others cannot hijack a pending game.
+
+    callback_data budget is 64 bytes; sid is 8 hex chars, owner fits easily.
+    """
     return InlineKeyboardMarkup(
-        [[InlineKeyboardButton("Start game", callback_data=f"is:{session_id}")]]
+        [
+            [
+                InlineKeyboardButton(
+                    "Start game",
+                    callback_data=f"is:{session_id}:{owner_id}",
+                )
+            ]
+        ]
     )
 
 

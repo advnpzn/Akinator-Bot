@@ -346,7 +346,11 @@ async def win_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         await query.answer(strings.GAME_EXPIRED, show_alert=True)
         return
     if session.user_id != update.effective_user.id:
-        await query.answer("Not your game.", show_alert=True)
+        bot = context.bot.username or "bot"
+        await query.answer(
+            strings.NOT_YOUR_GAME.format(bot=bot),
+            show_alert=True,
+        )
         return
     if session.phase != GamePhase.PROPOSITION:
         await query.answer()
@@ -425,7 +429,11 @@ async def cancel_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         await query.answer(strings.GAME_EXPIRED, show_alert=True)
         return
     if session.user_id != update.effective_user.id:
-        await query.answer("Not your game.", show_alert=True)
+        bot = context.bot.username or "bot"
+        await query.answer(
+            strings.NOT_YOUR_GAME.format(bot=bot),
+            show_alert=True,
+        )
         return
     await mgr.remove(sid)
     await db(context).log_event("game_cancel", update.effective_user.id, sid)

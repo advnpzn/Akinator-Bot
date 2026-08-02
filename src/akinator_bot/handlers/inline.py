@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import html
 import logging
 import uuid
 
@@ -21,15 +22,22 @@ from telegram.ext import (
 )
 
 from akinator_bot import strings
-from akinator_bot.handlers.common import db, ensure_user, games, sessions
+from akinator_bot.handlers.common import ensure_user, sessions
 from akinator_bot.handlers.play import _bootstrap_game, _edit_caption
 from akinator_bot.keyboards import inline_start_keyboard
 from akinator_bot.sessions import GamePhase
 
 logger = logging.getLogger(__name__)
 
-# result_id prefix -> pending inline start payload stored briefly
+# result_id -> pending inline start payload stored briefly
 _PENDING: dict[str, dict] = {}
+
+
+def _owner_label(user) -> str:
+    if user.username:
+        return f"@{html.escape(user.username)}"
+    name = html.escape(user.first_name or "player")
+    return name
 
 
 async def inline_query(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -37,10 +45,10 @@ async def inline_query(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
     if not query or not update.effective_user:
         return
 
-    # Always offer Play (any query text) so the client never spins forever
+    owner = update.effective_user
     result_id = f"play:{uuid.uuid4().hex[:12]}"
     _PENDING[result_id] = {
-        "user_id": update.effective_user.id,
+        "user_id": owner.id,
     }
     if len(_PENDING) > 2000:
         for k in list(_PENDING.keys())[:1000]:
@@ -53,15 +61,14 @@ async def inline_query(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
             description=strings.INLINE_DESC,
             thumbnail_url="https://en.akinator.com/assets/img/akitudes_670x1096/defi.png",
             input_message_content=InputTextMessageContent(
-                message_text=strings.INLINE_START_TEXT,
+                message_text=strings.INLINE_START_TEXT.format(owner=_owner_label(owner)),
                 parse_mode=ParseMode.HTML,
             ),
-            # placeholder keyboard; replaced on chosen_inline_result with real session
-            reply_markup=inline_start_keyboard("pending"),
+            # Owner id is baked into the button so only they can claim the game
+            reply_markup=inline_start_keyboard("pending", owner.id),
         )
     ]
 
-    # PTB v21+: switch_pm_* was replaced by button=
     await query.answer(
         results,
         cache_time=5,
@@ -87,7 +94,6 @@ async def chosen_inline(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
 
     inline_message_id = chosen.inline_message_id
     if not inline_message_id:
-        # Some clients omit this without reply_markup from bot - we set markup so it should exist
         logger.warning("chosen_inline without inline_message_id")
         return
 
@@ -101,13 +107,14 @@ async def chosen_inline(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         phase=GamePhase.PENDING,
     )
 
-    # Attach real start button with session id
     try:
         await context.bot.edit_message_text(
-            text=strings.INLINE_START_TEXT,
+            text=strings.INLINE_START_TEXT.format(
+                owner=_owner_label(update.effective_user)
+            ),
             inline_message_id=inline_message_id,
             parse_mode=ParseMode.HTML,
-            reply_markup=inline_start_keyboard(session.session_id),
+            reply_markup=inline_start_keyboard(session.session_id, session.user_id),
         )
     except Exception as e:
         logger.warning("failed to bind inline session: %s", e)
@@ -116,31 +123,55 @@ async def chosen_inline(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
 async def inline_start_callback(
     update: Update, context: ContextTypes.DEFAULT_TYPE
 ) -> None:
-    """User tapped Start on an inline message."""
+    """User tapped Start on an inline message. Owner-only."""
     query = update.callback_query
     if not query or not query.data or not update.effective_user:
         return
-    sid = query.data.split(":", 1)[1]
+
+    # is:{session_id|pending}:{owner_id}
+    parts = query.data.split(":")
+    if len(parts) != 3:
+        await query.answer("Invalid button.", show_alert=True)
+        return
+    _, sid, owner_raw = parts
+    try:
+        owner_id = int(owner_raw)
+    except ValueError:
+        await query.answer("Invalid button.", show_alert=True)
+        return
+
+    clicker = update.effective_user
+    bot = context.bot.username or "bot"
+
+    # Hard gate: only the user who posted the inline game may start it
+    if clicker.id != owner_id:
+        await query.answer(
+            strings.NOT_YOUR_GAME.format(bot=bot),
+            show_alert=True,
+        )
+        return
+
     mgr = sessions(context)
     session = mgr.get(sid) if sid != "pending" else None
 
-    # Create session on first tap when chosen_inline feedback is off or still pending
     if session is None:
         if not query.inline_message_id:
             await query.answer(strings.GAME_EXPIRED, show_alert=True)
             return
         user_row = await ensure_user(update, context)
+        # Always create under the verified owner_id (clicker == owner)
         session = await mgr.create(
-            update.effective_user.id,
+            owner_id,
             language=user_row.aki_lang,
             child_mode=user_row.child_mode,
             inline_message_id=query.inline_message_id,
             phase=GamePhase.PENDING,
         )
-
-    if session.user_id != update.effective_user.id:
-        bot = context.bot.username or "bot"
-        await query.answer(strings.NOT_YOUR_GAME.format(bot=bot), show_alert=True)
+    elif session.user_id != owner_id or session.user_id != clicker.id:
+        await query.answer(
+            strings.NOT_YOUR_GAME.format(bot=bot),
+            show_alert=True,
+        )
         return
 
     if session.phase not in (GamePhase.PENDING,):
@@ -151,7 +182,6 @@ async def inline_start_callback(
         await query.answer(strings.GAME_BUSY)
         return
 
-    # Bind inline id if chosen_inline already created the session without it
     if query.inline_message_id and not session.inline_message_id:
         session.inline_message_id = query.inline_message_id
 

@@ -62,7 +62,10 @@ GAME_BUSY = "Still thinking... please wait a moment."
 
 GAME_EXPIRED = "This game session expired. Start a new one with /play"
 
-NOT_YOUR_GAME = "This isn't your game - start your own with /play or @{bot}"
+NOT_YOUR_GAME = (
+    "This isn't your game. Only the person who started it can play. "
+    "Start your own with /play or @{bot}"
+)
 
 LOADING = "Loading..."
 
@@ -81,7 +84,7 @@ INLINE_DESC = "Guess the character - works in this chat"
 INLINE_START_TEXT = (
     "<b>Akinator</b>\n\n"
     "Think of a character. Tap <b>Start game</b> when ready.\n"
-    "<i>Only the person who starts can answer.</i>"
+    "<i>Only {owner} can play this round.</i>"
 )
 
 AKI_LANG_CODE: dict[str, str] = {
