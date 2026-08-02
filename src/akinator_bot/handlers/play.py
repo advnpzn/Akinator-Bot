@@ -20,6 +20,7 @@ def _file_media(path, caption: str | None = None) -> InputMediaPhoto:
     return InputMediaPhoto(
         media=InputFile(path.open("rb"), filename=path.name),
         caption=caption,
+        parse_mode=ParseMode.HTML if caption else None,
     )
 
 logger = logging.getLogger(__name__)
@@ -368,6 +369,12 @@ async def win_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         database = db(context)
         yes = ans == "y"
 
+        # Capture proposition before API calls may clear it
+        aki = session.aki
+        guess_name = (aki.name_proposition if aki else None) or "???"
+        guess_desc = (aki.description_proposition if aki else None) or ""
+        desc_line = f"<i>{guess_desc}</i>\n\n" if guess_desc else "\n"
+
         try:
             await svc.confirm_win(session, yes=yes)
         except Exception as e:
@@ -397,16 +404,23 @@ async def win_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
             await database.record_correct(session.user_id)
             await database.log_event("game_win", session.user_id, session.session_id)
             photo = svc.win_photo()
-            caption = strings.CORRECT_CAPTION
+            caption = strings.CORRECT_CAPTION.format(
+                name=guess_name,
+                desc=desc_line,
+            )
         else:
             await database.record_wrong(session.user_id)
             await database.log_event("game_lose", session.user_id, session.session_id)
             photo = svc.defeat_photo()
-            caption = strings.WRONG_CAPTION
+            caption = strings.WRONG_CAPTION.format(
+                name=guess_name,
+                desc=desc_line,
+            )
 
         media = _file_media(photo, caption) if photo.exists() else InputMediaPhoto(
             media="https://en.akinator.com/assets/img/akitudes_670x1096/triomphe.png",
             caption=caption,
+            parse_mode=ParseMode.HTML,
         )
         await _edit_media(
             bot=context.bot,

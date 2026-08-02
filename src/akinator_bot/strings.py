@@ -75,8 +75,16 @@ WIN_CAPTION = (
     "Was I correct?"
 )
 
-CORRECT_CAPTION = "Correct! GG!"
-WRONG_CAPTION = "Wrong. Try again next time."
+CORRECT_CAPTION = (
+    "Answer: <b>{name}</b>\n"
+    "{desc}"
+    "Result: <b>correct</b>"
+)
+WRONG_CAPTION = (
+    "Guess: <b>{name}</b>\n"
+    "{desc}"
+    "Result: <b>incorrect</b>"
+)
 CANCEL_CAPTION = "Game cancelled. Use /play when you're ready again."
 
 INLINE_TITLE = "Play Akinator"
