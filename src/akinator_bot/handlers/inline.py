@@ -27,7 +27,7 @@ from akinator_bot.sessions import GamePhase
 
 logger = logging.getLogger(__name__)
 
-# result_id prefix → pending inline start payload stored briefly
+# result_id prefix -> pending inline start payload stored briefly
 _PENDING: dict[str, dict] = {}
 
 

@@ -68,7 +68,7 @@ class SessionManager:
         self._global = asyncio.Lock()
 
     def _new_id(self) -> str:
-        # 8 hex chars → fits Telegram callback_data budget with room to spare
+        # 8 hex chars - fits Telegram callback_data budget with room to spare
         return secrets.token_hex(4)
 
     async def create(

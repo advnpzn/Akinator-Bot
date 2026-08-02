@@ -11,7 +11,7 @@ COPY pyproject.toml README.md ./
 COPY src ./src
 COPY assets ./assets
 
-# Lockfile optional on first build — generate if present
+# Lockfile optional on first build - generate if present
 COPY uv.lock* ./
 
 RUN --mount=type=cache,target=/root/.cache/uv \

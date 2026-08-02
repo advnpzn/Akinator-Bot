@@ -80,7 +80,7 @@ async def set_language(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         return
     await ensure_user(update, context)
     await db(context).set_language(update.effective_user.id, lang)
-    await query.answer(f"Language → {strings.AKI_LANG_CODE[lang]}")
+    await query.answer(f"Language: {strings.AKI_LANG_CODE[lang]}")
     if query.message:
         await query.edit_message_text(
             f"Language set to <b>{strings.AKI_LANG_CODE[lang]}</b>",

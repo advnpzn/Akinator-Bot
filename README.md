@@ -2,13 +2,13 @@
 
 Modern, concurrent Telegram bot for the Akinator guessing game.
 
-- **akipy 1.6.0** (async API) with **TRAWL** / FlareSolverr Cloudflare bypass  
-- **SQLite** (WAL) via `aiosqlite`  
-- **uv** packaging · **Docker Compose** · `.env` config  
-- **Inline mode** — play in any group/chat via `@your_bot play`  
-- Per-user session locks + global API semaphore for multi-user load  
-- Modern leaderboard (correct / win rate / games / questions)  
-- Admin panel (`ADMIN_IDS` + optional `ADMIN_SECRET`) with secret-safe logging  
+- **akipy 1.6.0** (async API) with **TRAWL** / FlareSolverr Cloudflare bypass
+- **SQLite** (WAL) via `aiosqlite`
+- **uv** packaging, **Docker Compose**, `.env` config
+- **Inline mode** - play in any group/chat via `@your_bot play`
+- Per-user session locks + global API semaphore for multi-user load
+- Modern leaderboard (correct / win rate / games / questions)
+- Admin panel (`ADMIN_IDS` + optional `ADMIN_SECRET`) with secret-safe logging
 
 ## Quick start (local)
 
@@ -23,9 +23,9 @@ uv run akinator-bot
 
 ### BotFather checklist
 
-1. Disable privacy mode if you want group command visibility (`/setprivacy` → Disable) — not required for private play or inline.  
-2. Enable inline: `/setinline` → set a placeholder like `play`.  
-3. Optional: `/setinlinefeedback` Enabled (improves session bind; not required).  
+1. Disable privacy mode if you want group command visibility (`/setprivacy` -> Disable) - not required for private play or inline.
+2. Enable inline: `/setinline` -> set a placeholder like `play`.
+3. Optional: `/setinlinefeedback` Enabled (improves session bind; not required).
 
 ## Environment
 
@@ -49,17 +49,13 @@ docker compose up -d --build
 docker compose logs -f bot
 ```
 
-The compose file reaches host TRAWL via `host.docker.internal:8193`. To embed a solver:
-
-```bash
-docker compose --profile with-trawl up -d --build
-```
-
-To attach to an existing Docker network named `trawl_default`, uncomment the `networks` block in `docker-compose.yml` and set:
+Compose joins the external Docker network `trawl_default` and uses `http://trawl:8191` as the solver. For host-only TRAWL without that network, set:
 
 ```env
-AKIPY_SOLVER_URL=http://trawl:8191
+AKIPY_SOLVER_URL=http://host.docker.internal:8193
 ```
+
+and ensure `extra_hosts` / host gateway is configured.
 
 ## Commands
 
@@ -88,22 +84,26 @@ Pick **Play Akinator**, then **Start game**. Only the starter can answer.
 ## Architecture
 
 ```text
-Telegram updates ──► python-telegram-bot (concurrent_updates)
-                         │
-         ┌───────────────┼────────────────┐
-         ▼               ▼                ▼
-   SessionManager    GameService       Database
-   (per-user lock)   (akipy async      (aiosqlite WAL)
-                      + semaphore)
-                           │
-                           ▼
-                    TRAWL (optional CF solve)
-                           │
-                           ▼
-                       Akinator
+Telegram updates
+        |
+        v
+python-telegram-bot (concurrent_updates)
+        |
+   +----+----+
+   |         |         |
+   v         v         v
+SessionManager  GameService  Database
+(per-user lock) (akipy async  (aiosqlite WAL)
+                 + semaphore)
+                    |
+                    v
+             TRAWL (optional CF solve)
+                    |
+                    v
+                 Akinator
 ```
 
 ## Credits
 
-- Original idea: [advnpzn/Akinator-Bot](https://github.com/advnpzn/Akinator-Bot)  
-- [akipy](https://github.com/advnpzn/akipy) · [TRAWL](https://github.com/germondai/trawl) · [python-telegram-bot](https://github.com/python-telegram-bot/python-telegram-bot)
+- Original idea: [advnpzn/Akinator-Bot](https://github.com/advnpzn/Akinator-Bot)
+- [akipy](https://github.com/advnpzn/akipy), [TRAWL](https://github.com/germondai/trawl), [python-telegram-bot](https://github.com/python-telegram-bot/python-telegram-bot)
