@@ -132,6 +132,14 @@ class GameService:
             logger.warning("image fetch failed %s: %s", url, e)
             return None
 
+    def media_from_remote_url(self, url: str, caption: str) -> InputMediaPhoto:
+        """Let Telegram fetch the image by URL (best for clarinea character photos)."""
+        return InputMediaPhoto(
+            media=url,
+            caption=caption,
+            parse_mode="HTML",
+        )
+
     async def media_from_url(
         self,
         url: str,
@@ -139,14 +147,58 @@ class GameService:
         *,
         filename: str = "image.png",
     ) -> InputMediaPhoto | None:
+        """Download then re-upload (when Telegram cannot fetch the URL itself)."""
         data = await self.fetch_image(url)
         if not data:
             return None
+        buf = io.BytesIO(data)
+        buf.name = filename  # some stacks use the name attribute
         return InputMediaPhoto(
-            media=InputFile(io.BytesIO(data), filename=filename),
+            media=InputFile(buf, filename=filename),
             caption=caption,
             parse_mode="HTML",
         )
+
+    async def character_media(
+        self,
+        photo_url: str | None,
+        caption: str,
+        *,
+        fallback: Path | None = None,
+    ) -> InputMediaPhoto:
+        """Build media for the guessed character.
+
+        Prefer the remote URL first (Telegram CDN fetch of clarinea usually works).
+        Never fall back to random question faces — those are only for Q&A.
+        """
+        url = (photo_url or "").strip()
+        if url:
+            # 1) URL for Telegram to fetch
+            # 2) re-upload if we need a bytes-based InputMedia later
+            return self.media_from_remote_url(url, caption)
+        if fallback is not None and fallback.exists():
+            return self.local_media(fallback, caption)
+        return self.local_media(self.win_photo(), caption)
+
+    async def character_media_reupload(
+        self,
+        photo_url: str | None,
+        caption: str,
+        *,
+        fallback: Path | None = None,
+    ) -> InputMediaPhoto:
+        """Same as character_media but force bot-side download + upload."""
+        url = (photo_url or "").strip()
+        if url:
+            media = await self.media_from_url(
+                url, caption, filename="character.jpg"
+            )
+            if media is not None:
+                return media
+            logger.warning("could not re-upload character photo: %s", url)
+        if fallback is not None and fallback.exists():
+            return self.local_media(fallback, caption)
+        return self.local_media(self.win_photo(), caption)
 
     async def question_media(
         self,
@@ -160,16 +212,18 @@ class GameService:
         return self.local_media(path, caption)
 
     async def proposition_media(self, aki: Akinator, caption: str) -> InputMediaPhoto:
-        """Character photo for a win proposition (remote), else local confiant-ish frame."""
-        photo = aki.photo or ""
-        if photo:
-            media = await self.media_from_url(
-                photo, caption, filename="character.jpg"
+        """Guessed character photo for 'Was I correct?' — not a random Aki face."""
+        photo = (aki.photo or "").strip()
+        if not photo:
+            logger.warning(
+                "win proposition without photo url name=%r",
+                aki.name_proposition,
             )
-            if media is not None:
-                return media
-        # No remote character art: use a random local expression
-        return await self.question_media(aki, caption)
+        return await self.character_media(
+            photo,
+            caption,
+            fallback=self.win_photo(),
+        )
 
     async def start_akinator(self, session: GameSession) -> Akinator:
         """Initialise akipy Akinator for the session (solver-aware)."""

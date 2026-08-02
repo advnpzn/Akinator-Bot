@@ -93,11 +93,15 @@ async def _edit_media(
     session: GameSession,
     media: InputMediaPhoto,
     reply_markup=None,
+    fallback_media: InputMediaPhoto | None = None,
 ) -> None:
     """Update the game message.
 
     - Inline: text only (never photos).
-    - Direct /play: real photo edits (akitudes + final answer images).
+    - Direct /play: real photo edits (faces + final answer images).
+
+    If the first media edit fails (e.g. Telegram cannot fetch a remote URL),
+    optionally retry with fallback_media before giving up to caption-only.
     """
     if session.inline_message_id:
         await _edit_inline_text(
@@ -108,24 +112,32 @@ async def _edit_media(
         )
         return
 
-    try:
-        if session.chat_id and session.message_id:
+    if not (session.chat_id and session.message_id):
+        return
+
+    for attempt, m in enumerate((media, fallback_media)):
+        if m is None:
+            continue
+        try:
             await bot.edit_message_media(
-                media=media,
+                media=m,
                 chat_id=session.chat_id,
                 message_id=session.message_id,
                 reply_markup=reply_markup,
             )
-    except BadRequest as e:
-        if "not modified" in str(e).lower():
             return
-        logger.warning("edit_media failed: %s", e)
-        await _edit_caption(
-            bot,
-            session,
-            media.caption or "",
-            reply_markup=reply_markup,
-        )
+        except BadRequest as e:
+            if "not modified" in str(e).lower():
+                return
+            logger.warning("edit_media failed (attempt %s): %s", attempt + 1, e)
+
+    # Last resort: keep current image, at least update text
+    await _edit_caption(
+        bot,
+        session,
+        media.caption or "",
+        reply_markup=reply_markup,
+    )
 
 
 async def start_game_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -305,11 +317,17 @@ async def answer_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
                 desc=aki.description_proposition or "",
             )
             media = await svc.proposition_media(aki, caption)
+            fallback = None
+            if (aki.photo or "").strip():
+                fallback = await svc.character_media_reupload(
+                    aki.photo, caption, fallback=svc.win_photo()
+                )
             await _edit_media(
                 bot=context.bot,
                 session=session,
                 media=media,
                 reply_markup=win_keyboard(session.session_id),
+                fallback_media=fallback,
             )
         else:
             caption = _progress_caption(aki.question, aki.step, aki.progression)
@@ -406,18 +424,18 @@ async def win_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
                     reply_markup=None,
                 )
             else:
-                media = None
-                if guess_photo:
-                    media = await svc.media_from_url(
-                        guess_photo, caption, filename="character.jpg"
-                    )
-                if media is None:
-                    media = svc.local_media(svc.win_photo(), caption)
+                media = await svc.character_media(
+                    guess_photo, caption, fallback=svc.win_photo()
+                )
+                fallback = await svc.character_media_reupload(
+                    guess_photo, caption, fallback=svc.win_photo()
+                )
                 await _edit_media(
                     bot=context.bot,
                     session=session,
                     media=media,
                     reply_markup=play_again_keyboard(),
+                    fallback_media=fallback,
                 )
         else:
             await database.record_wrong(session.user_id)
@@ -434,18 +452,18 @@ async def win_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
                     reply_markup=None,
                 )
             else:
-                media = None
-                if guess_photo:
-                    media = await svc.media_from_url(
-                        guess_photo, caption, filename="character.jpg"
-                    )
-                if media is None:
-                    media = svc.local_media(svc.defeat_photo(), caption)
+                media = await svc.character_media(
+                    guess_photo, caption, fallback=svc.defeat_photo()
+                )
+                fallback = await svc.character_media_reupload(
+                    guess_photo, caption, fallback=svc.defeat_photo()
+                )
                 await _edit_media(
                     bot=context.bot,
                     session=session,
                     media=media,
                     reply_markup=play_again_keyboard(),
+                    fallback_media=fallback,
                 )
         session.phase = GamePhase.DONE
         await mgr.remove(session.session_id)
