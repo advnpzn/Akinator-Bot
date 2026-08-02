@@ -1,5 +1,0 @@
-python-telegram-bot==20.6
-akipy==0.1.0
-pymongo==4.7.2
-dnspython==2.6.1
-python-dotenv==1.0.1
