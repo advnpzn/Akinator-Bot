@@ -211,11 +211,7 @@ async def _bootstrap_game(
         await database.log_event("game_start", session.user_id, session.session_id)
 
         caption = _progress_caption(aki.question, aki.step, aki.progression)
-        media = InputMediaPhoto(
-            media=svc.akitude_url(aki),
-            caption=caption,
-            parse_mode=ParseMode.HTML,
-        )
+        media = await svc.question_media(aki, caption)
         await _edit_media(
             bot=context.bot,
             session=session,
@@ -306,7 +302,7 @@ async def answer_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
                 name=aki.name_proposition or "???",
                 desc=aki.description_proposition or "",
             )
-            media = svc.proposition_media(aki, caption)
+            media = await svc.proposition_media(aki, caption)
             await _edit_media(
                 bot=context.bot,
                 session=session,
@@ -315,11 +311,7 @@ async def answer_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
             )
         else:
             caption = _progress_caption(aki.question, aki.step, aki.progression)
-            media = InputMediaPhoto(
-                media=svc.akitude_url(aki),
-                caption=caption,
-                parse_mode=ParseMode.HTML,
-            )
+            media = await svc.question_media(aki, caption)
             await _edit_media(
                 bot=context.bot,
                 session=session,
@@ -383,11 +375,7 @@ async def win_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
             session.phase = GamePhase.PLAYING
             await query.answer("Hmm, let me try again...")
             caption = _progress_caption(aki.question, aki.step, aki.progression)
-            media = InputMediaPhoto(
-                media=svc.akitude_url(aki),
-                caption=caption,
-                parse_mode=ParseMode.HTML,
-            )
+            media = await svc.question_media(aki, caption)
             await _edit_media(
                 bot=context.bot,
                 session=session,
@@ -412,24 +400,19 @@ async def win_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
                     reply_markup=None,
                 )
             else:
-                # Direct play: show the actual character photo as the final answer
+                media = None
                 if guess_photo:
-                    media = InputMediaPhoto(
-                        media=guess_photo,
-                        caption=caption,
-                        parse_mode=ParseMode.HTML,
+                    media = await svc.media_from_url(
+                        guess_photo, caption, filename="character.jpg"
                     )
-                else:
-                    photo = svc.win_photo()
-                    media = (
-                        _file_media(photo, caption)
-                        if photo.exists()
-                        else InputMediaPhoto(
-                            media="https://en.akinator.com/assets/img/akitudes_670x1096/triomphe.png",
-                            caption=caption,
-                            parse_mode=ParseMode.HTML,
-                        )
+                if media is None:
+                    media = await svc.media_from_url(
+                        "https://en.akinator.com/assets/img/akitudes_670x1096/triomphe.png",
+                        caption,
+                        filename="triomphe.png",
                     )
+                if media is None:
+                    media = _file_media(svc.win_photo(), caption)
                 await _edit_media(
                     bot=context.bot,
                     session=session,
@@ -451,24 +434,25 @@ async def win_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
                     reply_markup=None,
                 )
             else:
-                # Still show the guess photo if we have it, else defeat art
                 if guess_photo:
-                    media = InputMediaPhoto(
-                        media=guess_photo,
-                        caption=caption,
-                        parse_mode=ParseMode.HTML,
+                    media = await svc.media_from_url(
+                        guess_photo, caption, filename="character.jpg"
                     )
-                else:
-                    photo = svc.defeat_photo()
-                    media = (
-                        _file_media(photo, caption)
-                        if photo.exists()
-                        else InputMediaPhoto(
-                            media="https://en.akinator.com/assets/img/akitudes_670x1096/deception.png",
-                            caption=caption,
-                            parse_mode=ParseMode.HTML,
+                    if media is None:
+                        media = await svc.media_from_url(
+                            "https://en.akinator.com/assets/img/akitudes_670x1096/deception.png",
+                            caption,
+                            filename="deception.png",
                         )
+                else:
+                    media = await svc.media_from_url(
+                        "https://en.akinator.com/assets/img/akitudes_670x1096/deception.png",
+                        caption,
+                        filename="deception.png",
                     )
+                if media is None:
+                    photo = svc.defeat_photo()
+                    media = _file_media(photo, caption)
                 await _edit_media(
                     bot=context.bot,
                     session=session,
