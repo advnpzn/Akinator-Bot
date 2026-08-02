@@ -16,8 +16,9 @@ from akinator_bot.sessions import GamePhase, GameSession
 
 
 def _file_media(path, caption: str | None = None) -> InputMediaPhoto:
+    # PTB/httpx need a real file handle or path string, not pathlib.Path
     return InputMediaPhoto(
-        media=InputFile(path),
+        media=InputFile(path.open("rb"), filename=path.name),
         caption=caption,
     )
 
@@ -119,7 +120,7 @@ async def start_game_message(update: Update, context: ContextTypes.DEFAULT_TYPE)
 
     loading = svc.loading_photo()
     msg = await update.message.reply_photo(
-        photo=InputFile(loading),
+        photo=InputFile(loading.open("rb"), filename=loading.name),
         caption=strings.LOADING,
     )
     session = await mgr.create(
@@ -151,7 +152,7 @@ async def start_game_from_callback(
     loading = svc.loading_photo()
     msg = await context.bot.send_photo(
         chat_id=chat.id,
-        photo=InputFile(loading),
+        photo=InputFile(loading.open("rb"), filename=loading.name),
         caption=strings.LOADING,
     )
     session = await mgr.create(
