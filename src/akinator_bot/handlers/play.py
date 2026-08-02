@@ -13,6 +13,7 @@ from akinator_bot import strings
 from akinator_bot.handlers.common import db, ensure_user, games, sessions
 from akinator_bot.keyboards import play_again_keyboard, play_keyboard, win_keyboard
 from akinator_bot.sessions import GamePhase, GameSession
+from akinator_bot.themes import normalize_theme
 
 logger = logging.getLogger(__name__)
 
@@ -155,6 +156,7 @@ async def start_game_message(update: Update, context: ContextTypes.DEFAULT_TYPE)
     session = await mgr.create(
         update.effective_user.id,
         language=user_row.aki_lang,
+        theme=normalize_theme(user_row.aki_theme, user_row.aki_lang),
         child_mode=user_row.child_mode,
         chat_id=msg.chat_id,
         message_id=msg.message_id,
@@ -187,6 +189,7 @@ async def start_game_from_callback(
     session = await mgr.create(
         update.effective_user.id,
         language=user_row.aki_lang,
+        theme=normalize_theme(user_row.aki_theme, user_row.aki_lang),
         child_mode=user_row.child_mode,
         chat_id=msg.chat_id,
         message_id=msg.message_id,

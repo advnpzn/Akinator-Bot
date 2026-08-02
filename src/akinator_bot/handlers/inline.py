@@ -27,6 +27,7 @@ from akinator_bot.handlers.common import ensure_user, sessions
 from akinator_bot.handlers.play import _bootstrap_game, _edit_inline_text
 from akinator_bot.keyboards import inline_start_keyboard
 from akinator_bot.sessions import GamePhase
+from akinator_bot.themes import normalize_theme
 
 logger = logging.getLogger(__name__)
 
@@ -95,6 +96,7 @@ async def chosen_inline(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
     session = await mgr.create(
         update.effective_user.id,
         language=user_row.aki_lang,
+        theme=normalize_theme(user_row.aki_theme, user_row.aki_lang),
         child_mode=user_row.child_mode,
         inline_message_id=chosen.inline_message_id,
         phase=GamePhase.PENDING,
@@ -149,6 +151,7 @@ async def inline_start_callback(
         session = await mgr.create(
             owner_id,
             language=user_row.aki_lang,
+            theme=normalize_theme(user_row.aki_theme, user_row.aki_lang),
             child_mode=user_row.child_mode,
             inline_message_id=query.inline_message_id,
             phase=GamePhase.PENDING,

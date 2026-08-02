@@ -8,8 +8,8 @@ START_MSG = (
     "guess who it is.\n\n"
     "- <code>/play</code> - start a game here\n"
     "- Type <code>@{bot}</code> in any chat to play via inline mode\n"
-    "- <code>/language</code> | <code>/childmode</code> | <code>/me</code> | "
-    "<code>/leaderboard</code>"
+    "- <code>/language</code> | <code>/theme</code> | <code>/childmode</code> | "
+    "<code>/me</code> | <code>/leaderboard</code>"
 )
 
 HELP_MSG = (
@@ -18,6 +18,7 @@ HELP_MSG = (
     "/me - your stats\n"
     "/leaderboard - rankings\n"
     "/language - question language\n"
+    "/theme - characters, animals, or objects\n"
     "/childmode - hide NSFW content\n"
     "/cancel - abandon current game\n"
     "/help - this message\n\n"
@@ -32,6 +33,7 @@ ME_MSG = (
     "<b>Username</b>: <code>{username}</code>\n"
     "<b>ID</b>: <code>{user_id}</code>\n"
     "<b>Language</b>: <code>{lang}</code>\n"
+    "<b>Theme</b>: <code>{theme}</code>\n"
     "<b>Child mode</b>: <code>{child}</code>\n\n"
     "<b>Games</b>: <code>{total}</code>\n"
     "Correct: <code>{correct}</code>\n"
@@ -50,6 +52,12 @@ LANG_MSG = (
 CHILD_MSG = (
     "<b>Child mode</b> filters NSFW characters when enabled.\n\n"
     "<b>Status:</b> <code>{status}</code>"
+)
+
+THEME_MSG = (
+    "Choose what Akinator should guess.\n"
+    "Availability depends on your question language.\n\n"
+    "<b>Current:</b> <code>{theme}</code>"
 )
 
 LEAD_INTRO = "<b>Leaderboard</b>\nPick a category:"

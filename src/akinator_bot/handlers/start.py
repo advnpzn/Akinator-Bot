@@ -73,6 +73,11 @@ async def menu_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
 
         await show_language(update, context, edit=True)
         return
+    if action == "theme":
+        from akinator_bot.handlers.settings import show_theme
+
+        await show_theme(update, context, edit=True)
+        return
     if action == "child":
         from akinator_bot.handlers.settings import show_childmode
 

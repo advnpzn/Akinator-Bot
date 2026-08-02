@@ -31,6 +31,7 @@ class GameSession:
     aki: Akinator | None = None
     questions: int = 0
     language: str = "en"
+    theme: str = "c"  # c=characters, a=animals, o=objects
     child_mode: bool = True
     # message targeting
     chat_id: int | None = None
@@ -77,6 +78,7 @@ class SessionManager:
         *,
         language: str,
         child_mode: bool,
+        theme: str = "c",
         chat_id: int | None = None,
         message_id: int | None = None,
         inline_message_id: str | None = None,
@@ -95,6 +97,7 @@ class SessionManager:
                 user_id=user_id,
                 phase=phase,
                 language=language,
+                theme=theme,
                 child_mode=child_mode,
                 chat_id=chat_id,
                 message_id=message_id,

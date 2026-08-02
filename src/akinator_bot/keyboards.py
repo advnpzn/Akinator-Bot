@@ -23,10 +23,26 @@ def start_keyboard(bot_username: str) -> InlineKeyboardMarkup:
             ],
             [
                 InlineKeyboardButton("Language", callback_data="menu:lang"),
+                InlineKeyboardButton("Theme", callback_data="menu:theme"),
+            ],
+            [
                 InlineKeyboardButton("Child mode", callback_data="menu:child"),
             ],
         ]
     )
+
+
+def theme_keyboard(available: list[str], current: str) -> InlineKeyboardMarkup:
+    from akinator_bot.themes import THEME_LABELS
+
+    row: list[InlineKeyboardButton] = []
+    for code in available:
+        label = THEME_LABELS.get(code, code)
+        if code == current:
+            label = f"* {label}"
+        row.append(InlineKeyboardButton(label, callback_data=f"theme:{code}"))
+    # single row is fine (at most 3 themes)
+    return InlineKeyboardMarkup([row] if row else [[]])
 
 
 def language_keyboard(current: str) -> InlineKeyboardMarkup:

@@ -33,6 +33,7 @@ CREATE TABLE IF NOT EXISTS users (
     username         TEXT,
     language_code    TEXT,
     aki_lang         TEXT NOT NULL DEFAULT 'en',
+    aki_theme        TEXT NOT NULL DEFAULT 'c',
     child_mode       INTEGER NOT NULL DEFAULT 1,
     total_guess      INTEGER NOT NULL DEFAULT 0,
     correct_guess    INTEGER NOT NULL DEFAULT 0,
@@ -73,6 +74,7 @@ class UserRow:
     username: str | None
     language_code: str | None
     aki_lang: str
+    aki_theme: str
     child_mode: bool
     total_guess: int
     correct_guess: int
@@ -98,6 +100,7 @@ class UserRow:
 
     @classmethod
     def from_row(cls, row: aiosqlite.Row) -> UserRow:
+        keys = row.keys()
         return cls(
             user_id=row["user_id"],
             first_name=row["first_name"],
@@ -105,6 +108,7 @@ class UserRow:
             username=row["username"],
             language_code=row["language_code"],
             aki_lang=row["aki_lang"] or "en",
+            aki_theme=(row["aki_theme"] if "aki_theme" in keys else None) or "c",
             child_mode=bool(row["child_mode"]),
             total_guess=row["total_guess"] or 0,
             correct_guess=row["correct_guess"] or 0,
@@ -137,8 +141,20 @@ class Database:
         self._db = await aiosqlite.connect(self.path)
         self._db.row_factory = aiosqlite.Row
         await self._db.executescript(SCHEMA)
+        await self._migrate()
         await self._db.commit()
         logger.info("SQLite ready at %s", self.path)
+
+    async def _migrate(self) -> None:
+        """Add columns introduced after the first schema."""
+        assert self._db is not None
+        async with self._db.execute("PRAGMA table_info(users)") as cur:
+            cols = {row[1] for row in await cur.fetchall()}
+        if "aki_theme" not in cols:
+            await self._db.execute(
+                "ALTER TABLE users ADD COLUMN aki_theme TEXT NOT NULL DEFAULT 'c'"
+            )
+            logger.info("migrated users.aki_theme")
 
     async def close(self) -> None:
         if self._db is not None:
@@ -167,8 +183,8 @@ class Database:
             """
             INSERT INTO users (
                 user_id, first_name, last_name, username, language_code,
-                aki_lang, child_mode, first_seen_at, last_seen_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                aki_lang, aki_theme, child_mode, first_seen_at, last_seen_at
+            ) VALUES (?, ?, ?, ?, ?, ?, 'c', ?, ?, ?)
             ON CONFLICT(user_id) DO UPDATE SET
                 first_name = excluded.first_name,
                 last_name = excluded.last_name,
@@ -242,6 +258,13 @@ class Database:
         await self.conn.execute(
             "UPDATE users SET aki_lang = ?, last_seen_at = ? WHERE user_id = ?",
             (lang, _utc_now(), user_id),
+        )
+        await self.conn.commit()
+
+    async def set_theme(self, user_id: int, theme: str) -> None:
+        await self.conn.execute(
+            "UPDATE users SET aki_theme = ?, last_seen_at = ? WHERE user_id = ?",
+            (theme, _utc_now(), user_id),
         )
         await self.conn.commit()
 

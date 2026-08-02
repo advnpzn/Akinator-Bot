@@ -42,6 +42,7 @@ async def _post_init(app: Application) -> None:
                 BotCommand("me", "Your stats"),
                 BotCommand("leaderboard", "Rankings"),
                 BotCommand("language", "Question language"),
+                BotCommand("theme", "Characters, animals, or objects"),
                 BotCommand("childmode", "NSFW filter on/off"),
                 BotCommand("help", "How to play"),
                 BotCommand("stats", "Global counters"),

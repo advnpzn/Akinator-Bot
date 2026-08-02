@@ -236,7 +236,7 @@ class GameService:
                 await aki.start_game(
                     language=session.language,
                     child_mode=session.child_mode,
-                    game_mode=self.settings.game_theme,
+                    game_mode=session.theme or self.settings.game_theme or "c",
                 )
             except Exception:
                 client = getattr(aki, "client", None)
@@ -251,10 +251,11 @@ class GameService:
         session.questions = 0
         session.touch()
         logger.info(
-            "game started user=%s sid=%s lang=%s child=%s prog=%s",
+            "game started user=%s sid=%s lang=%s theme=%s child=%s prog=%s",
             session.user_id,
             session.session_id,
             session.language,
+            session.theme,
             session.child_mode,
             aki.progression,
         )
