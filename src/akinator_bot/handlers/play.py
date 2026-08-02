@@ -211,7 +211,9 @@ async def _bootstrap_game(
         await database.log_event("game_start", session.user_id, session.session_id)
 
         caption = _progress_caption(aki.question, aki.step, aki.progression)
-        media = await svc.question_media(aki, caption)
+        media = await svc.question_media(
+            aki, caption, session_id=session.session_id
+        )
         await _edit_media(
             bot=context.bot,
             session=session,
@@ -311,7 +313,9 @@ async def answer_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
             )
         else:
             caption = _progress_caption(aki.question, aki.step, aki.progression)
-            media = await svc.question_media(aki, caption)
+            media = await svc.question_media(
+                aki, caption, session_id=session.session_id
+            )
             await _edit_media(
                 bot=context.bot,
                 session=session,
@@ -375,7 +379,9 @@ async def win_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
             session.phase = GamePhase.PLAYING
             await query.answer("Hmm, let me try again...")
             caption = _progress_caption(aki.question, aki.step, aki.progression)
-            media = await svc.question_media(aki, caption)
+            media = await svc.question_media(
+                aki, caption, session_id=session.session_id
+            )
             await _edit_media(
                 bot=context.bot,
                 session=session,
@@ -406,13 +412,7 @@ async def win_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
                         guess_photo, caption, filename="character.jpg"
                     )
                 if media is None:
-                    media = await svc.media_from_url(
-                        "https://en.akinator.com/assets/img/akitudes_670x1096/triomphe.png",
-                        caption,
-                        filename="triomphe.png",
-                    )
-                if media is None:
-                    media = _file_media(svc.win_photo(), caption)
+                    media = svc.local_media(svc.win_photo(), caption)
                 await _edit_media(
                     bot=context.bot,
                     session=session,
@@ -434,25 +434,13 @@ async def win_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
                     reply_markup=None,
                 )
             else:
+                media = None
                 if guess_photo:
                     media = await svc.media_from_url(
                         guess_photo, caption, filename="character.jpg"
                     )
-                    if media is None:
-                        media = await svc.media_from_url(
-                            "https://en.akinator.com/assets/img/akitudes_670x1096/deception.png",
-                            caption,
-                            filename="deception.png",
-                        )
-                else:
-                    media = await svc.media_from_url(
-                        "https://en.akinator.com/assets/img/akitudes_670x1096/deception.png",
-                        caption,
-                        filename="deception.png",
-                    )
                 if media is None:
-                    photo = svc.defeat_photo()
-                    media = _file_media(photo, caption)
+                    media = svc.local_media(svc.defeat_photo(), caption)
                 await _edit_media(
                     bot=context.bot,
                     session=session,

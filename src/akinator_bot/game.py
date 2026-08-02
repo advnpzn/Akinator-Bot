@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import io
 import logging
+import random
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -20,23 +21,14 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-AKITUDE_BASE = "https://en.akinator.com/assets/img/akitudes_670x1096"
-
-# Akinator's /answer JSON no longer includes `akitude` (always None / stale defi.png).
-# defi.png is also 404 on the CDN now. Map progression -> live expression assets.
-# Thresholds are min progression (0-100) for that face.
-_PROGRESSION_AKITUDES: list[tuple[float, str]] = [
-    (0.0, "mobile.png"),                 # low confidence / thinking
-    (12.0, "concentration.png"),
-    (28.0, "inspiration_legere.png"),
-    (45.0, "confiant.png"),
-    (65.0, "inspiration_forte.png"),
-    (82.0, "surprise.png"),
-    (92.0, "inquiet.png"),               # very high - almost sure
-]
-
-# Filenames known to 404 or that are useless defaults from old API
-_BAD_AKITUDES = frozenset({"", "defi.png", "none.png", "none.jpg"})
+# Bundled expression frames used while asking questions (direct /play only).
+_QUESTION_ASSETS = (
+    "aki_01.png",
+    "aki_02.png",
+    "aki_03.png",
+    "aki_04.png",
+    "aki_05.png",
+)
 
 
 class GameService:
@@ -46,9 +38,11 @@ class GameService:
         self.settings = settings
         self._sem = asyncio.Semaphore(settings.max_concurrent_aki_calls)
         self.assets = settings.assets_dir
-        # filename or url -> image bytes (Telegram cannot reliably fetch Akinator CDN)
+        # url -> image bytes (character photos from Akinator)
         self._image_cache: dict[str, bytes] = {}
         self._http: httpx.AsyncClient | None = None
+        # sid -> last question asset name (avoid back-to-back duplicates)
+        self._last_question_asset: dict[str, str] = {}
 
     async def _client(self) -> httpx.AsyncClient:
         if self._http is None or self._http.is_closed:
@@ -83,41 +77,38 @@ class GameService:
     def defeat_photo(self) -> Path:
         return self.asset("aki_defeat.png")
 
-    @staticmethod
-    def progression_value(aki: Akinator) -> float:
-        try:
-            return float(aki.progression or 0.0)
-        except (TypeError, ValueError):
-            return 0.0
+    def _local_question_pool(self) -> list[Path]:
+        paths = [self.asset(n) for n in _QUESTION_ASSETS if self.asset(n).exists()]
+        if not paths:
+            fallback = self.loading_photo()
+            if fallback.exists():
+                paths = [fallback]
+        return paths
 
-    def resolve_akitude_name(self, aki: Akinator) -> str:
-        """Pick a CDN akitude filename for the current game state."""
-        if aki.win and not getattr(aki, "finished", False):
-            # Proposition phase - expression is less important; confiant works
-            return "confiant.png"
-        if getattr(aki, "finished", False) and not aki.win:
-            return "deception.png"
+    def pick_question_asset(self, session_id: str | None = None) -> Path:
+        """Random local expression; avoid repeating the previous pick for this game."""
+        pool = self._local_question_pool()
+        if not pool:
+            return self.loading_photo()
+        if len(pool) == 1:
+            chosen = pool[0]
+        else:
+            last = self._last_question_asset.get(session_id or "")
+            choices = [p for p in pool if p.name != last] or pool
+            chosen = random.choice(choices)
+        if session_id:
+            self._last_question_asset[session_id] = chosen.name
+        return chosen
 
-        raw = (aki.akitude or "").strip()
-        # Prefer API value only when it is a known-good filename
-        if raw and raw not in _BAD_AKITUDES and not raw.startswith("http"):
-            return raw
-
-        prog = self.progression_value(aki)
-        name = _PROGRESSION_AKITUDES[0][1]
-        for threshold, fname in _PROGRESSION_AKITUDES:
-            if prog >= threshold:
-                name = fname
-        return name
-
-    def akitude_url(self, aki: Akinator) -> str:
-        name = self.resolve_akitude_name(aki)
-        if name.startswith("http"):
-            return name
-        return f"{AKITUDE_BASE}/{name}"
+    def local_media(self, path: Path, caption: str) -> InputMediaPhoto:
+        return InputMediaPhoto(
+            media=InputFile(path.open("rb"), filename=path.name),
+            caption=caption,
+            parse_mode="HTML",
+        )
 
     async def fetch_image(self, url: str) -> bytes | None:
-        """Download an image (cached). Returns None on failure."""
+        """Download a remote image (cached). Used for character photos only."""
         if not url:
             return None
         cached = self._image_cache.get(url)
@@ -132,7 +123,6 @@ class GameService:
             data = resp.content
             if not data or len(data) < 100:
                 return None
-            # Cap cache size
             if len(self._image_cache) > 64:
                 for k in list(self._image_cache.keys())[:32]:
                     self._image_cache.pop(k, None)
@@ -158,23 +148,19 @@ class GameService:
             parse_mode="HTML",
         )
 
-    async def question_media(self, aki: Akinator, caption: str) -> InputMediaPhoto:
-        """Akitude photo for the current question (downloaded, not URL-by-Telegram)."""
-        name = self.resolve_akitude_name(aki)
-        url = f"{AKITUDE_BASE}/{name}" if not name.startswith("http") else name
-        media = await self.media_from_url(url, caption, filename=name)
-        if media is not None:
-            return media
-        # Fallback: local loading asset
-        path = self.loading_photo()
-        return InputMediaPhoto(
-            media=InputFile(path.open("rb"), filename=path.name),
-            caption=caption,
-            parse_mode="HTML",
-        )
+    async def question_media(
+        self,
+        aki: Akinator,
+        caption: str,
+        *,
+        session_id: str | None = None,
+    ) -> InputMediaPhoto:
+        """Random bundled Akinator face for the current question."""
+        path = self.pick_question_asset(session_id)
+        return self.local_media(path, caption)
 
     async def proposition_media(self, aki: Akinator, caption: str) -> InputMediaPhoto:
-        """Character photo for a win proposition."""
+        """Character photo for a win proposition (remote), else local confiant-ish frame."""
         photo = aki.photo or ""
         if photo:
             media = await self.media_from_url(
@@ -182,7 +168,7 @@ class GameService:
             )
             if media is not None:
                 return media
-        # Fallback confiant akitude
+        # No remote character art: use a random local expression
         return await self.question_media(aki, caption)
 
     async def start_akinator(self, session: GameSession) -> Akinator:
@@ -206,20 +192,16 @@ class GameService:
                     except Exception:
                         pass
                 raise
-        # Normalize default akitude; API no longer sends useful values
-        if not aki.akitude or aki.akitude in _BAD_AKITUDES:
-            aki.akitude = self.resolve_akitude_name(aki)
         session.aki = aki
         session.phase = GamePhase.PLAYING
         session.questions = 0
         session.touch()
         logger.info(
-            "game started user=%s sid=%s lang=%s child=%s akitude=%s prog=%s",
+            "game started user=%s sid=%s lang=%s child=%s prog=%s",
             session.user_id,
             session.session_id,
             session.language,
             session.child_mode,
-            aki.akitude,
             aki.progression,
         )
         return aki
@@ -233,14 +215,6 @@ class GameService:
                 await aki.back()
             else:
                 await aki.answer(choice)
-        # Refresh expression from progression when API omits akitude
-        if not aki.akitude or aki.akitude in _BAD_AKITUDES:
-            aki.akitude = self.resolve_akitude_name(aki)
-        else:
-            # Still overlay progression mapping if API keeps a stale default
-            mapped = self.resolve_akitude_name(aki)
-            if aki.akitude in _BAD_AKITUDES:
-                aki.akitude = mapped
         session.touch()
         if aki.win:
             session.phase = GamePhase.PROPOSITION
@@ -263,10 +237,9 @@ class GameService:
         if yes or getattr(aki, "finished", False) or not aki.win:
             if yes or getattr(aki, "finished", False):
                 session.phase = GamePhase.DONE
+                self._last_question_asset.pop(session.session_id, None)
             elif not aki.win:
                 session.phase = GamePhase.PLAYING
-                if not aki.akitude or aki.akitude in _BAD_AKITUDES:
-                    aki.akitude = self.resolve_akitude_name(aki)
 
     def map_error(self, exc: BaseException) -> str:
         if isinstance(exc, akipy.CantGoBackAnyFurther):
