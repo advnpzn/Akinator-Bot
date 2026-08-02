@@ -1,5 +1,8 @@
 # Self-hosted Akinator Telegram bot.
-# Uses host TRAWL on the shared Docker network trawl_default.
+#
+# Uses host networking so outbound Akinator traffic shares the host public IP
+# (Docker bridge IPs are often blocked by Cloudflare). TRAWL on the host is
+# reached at 127.0.0.1:8193.
 #
 #   docker compose up -d --build
 #   docker compose logs -f bot
@@ -10,21 +13,19 @@ services:
     image: akinator-bot:latest
     container_name: akinator-bot
     restart: unless-stopped
+    network_mode: host
     env_file:
       - .env
     environment:
       LOG_LEVEL: ${LOG_LEVEL:-INFO}
       DATABASE_PATH: /app/data/akinator.db
       ASSETS_DIR: /app/assets/aki_pics
-      # Reach existing TRAWL container by service name (not 127.0.0.1)
-      AKIPY_SOLVER_URL: http://trawl:8191
-      SOLVER_URL: http://trawl:8191
+      # Host TRAWL bind (see ~/Deployments/trawl)
+      AKIPY_SOLVER_URL: http://127.0.0.1:8193
+      SOLVER_URL: http://127.0.0.1:8193
       SOLVER_TIMEOUT_MS: ${SOLVER_TIMEOUT_MS:-90000}
     volumes:
       - akinator-data:/app/data
-    networks:
-      - default
-      - trawl_default
     logging:
       driver: json-file
       options:
@@ -34,7 +35,3 @@ services:
 volumes:
   akinator-data:
     name: akinator-data
-
-networks:
-  trawl_default:
-    external: true

@@ -1,5 +1,7 @@
 # syntax=docker/dockerfile:1
-FROM ghcr.io/astral-sh/uv:python3.13-bookworm-slim AS builder
+# Debian trixie ships OpenSSL 3.5+, which Cloudflare accepts more reliably
+# than bookworm's OpenSSL 3.0 (datacenter TLS fingerprints often get 403).
+FROM ghcr.io/astral-sh/uv:python3.13-trixie-slim AS builder
 
 WORKDIR /app
 
@@ -7,19 +9,15 @@ ENV UV_COMPILE_BYTECODE=1 \
     UV_LINK_MODE=copy \
     UV_PYTHON_DOWNLOADS=0
 
-COPY pyproject.toml README.md ./
+COPY pyproject.toml README.md uv.lock ./
 COPY src ./src
 COPY assets ./assets
 
-# Lockfile optional on first build - generate if present
-COPY uv.lock* ./
-
 RUN --mount=type=cache,target=/root/.cache/uv \
-    if [ -f uv.lock ]; then uv sync --frozen --no-dev --no-editable; \
-    else uv sync --no-dev --no-editable; fi
+    uv sync --frozen --no-dev --no-editable
 
 # --- runtime ---
-FROM python:3.13-slim-bookworm
+FROM python:3.13-slim-trixie
 
 WORKDIR /app
 
