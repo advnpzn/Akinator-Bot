@@ -80,30 +80,3 @@ In any chat:
 ```
 
 Pick **Play Akinator**, then **Start game**. Only the starter can answer.
-
-## Architecture
-
-```text
-Telegram updates
-        |
-        v
-python-telegram-bot (concurrent_updates)
-        |
-   +----+----+
-   |         |         |
-   v         v         v
-SessionManager  GameService  Database
-(per-user lock) (akipy async  (aiosqlite WAL)
-                 + semaphore)
-                    |
-                    v
-             TRAWL (optional CF solve)
-                    |
-                    v
-                 Akinator
-```
-
-## Credits
-
-- Original idea: [advnpzn/Akinator-Bot](https://github.com/advnpzn/Akinator-Bot)
-- [akipy](https://github.com/advnpzn/akipy), [TRAWL](https://github.com/germondai/trawl), [python-telegram-bot](https://github.com/python-telegram-bot/python-telegram-bot)
