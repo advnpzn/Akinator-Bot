@@ -1,4 +1,4 @@
-"""Inline mode - play Akinator in any group/chat."""
+"""Inline mode - text-only play in any group/chat (no images)."""
 
 from __future__ import annotations
 
@@ -30,7 +30,6 @@ from akinator_bot.sessions import GamePhase
 
 logger = logging.getLogger(__name__)
 
-# result_id -> pending inline start payload stored briefly
 _PENDING: dict[str, dict] = {}
 
 
@@ -48,15 +47,11 @@ async def inline_query(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
 
     owner = update.effective_user
     result_id = f"play:{uuid.uuid4().hex[:12]}"
-    _PENDING[result_id] = {
-        "user_id": owner.id,
-    }
+    _PENDING[result_id] = {"user_id": owner.id}
     if len(_PENDING) > 2000:
         for k in list(_PENDING.keys())[:1000]:
             _PENDING.pop(k, None)
 
-    # Pure text article: no photo while answering questions.
-    # Character image is shown only on a correct final answer (link preview).
     results = [
         InlineQueryResultArticle(
             id=result_id,
@@ -85,19 +80,13 @@ async def inline_query(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
 
 
 async def chosen_inline(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Create a real session bound to the inline message once the user picks a result."""
     chosen = update.chosen_inline_result
     if not chosen or not update.effective_user:
         return
-    result_id = chosen.result_id
-    meta = _PENDING.pop(result_id, None)
-    if meta is None:
+    meta = _PENDING.pop(chosen.result_id, None)
+    if meta is None or meta["user_id"] != update.effective_user.id:
         return
-    if meta["user_id"] != update.effective_user.id:
-        return
-
-    inline_message_id = chosen.inline_message_id
-    if not inline_message_id:
+    if not chosen.inline_message_id:
         logger.warning("chosen_inline without inline_message_id")
         return
 
@@ -107,7 +96,7 @@ async def chosen_inline(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         update.effective_user.id,
         language=user_row.aki_lang,
         child_mode=user_row.child_mode,
-        inline_message_id=inline_message_id,
+        inline_message_id=chosen.inline_message_id,
         phase=GamePhase.PENDING,
     )
 
@@ -116,7 +105,7 @@ async def chosen_inline(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
             text=strings.INLINE_START_TEXT.format(
                 owner=_owner_label(update.effective_user)
             ),
-            inline_message_id=inline_message_id,
+            inline_message_id=chosen.inline_message_id,
             parse_mode=ParseMode.HTML,
             reply_markup=inline_start_keyboard(session.session_id, session.user_id),
             link_preview_options=LinkPreviewOptions(is_disabled=True),
@@ -128,7 +117,6 @@ async def chosen_inline(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
 async def inline_start_callback(
     update: Update, context: ContextTypes.DEFAULT_TYPE
 ) -> None:
-    """User tapped Start on an inline message. Owner-only."""
     query = update.callback_query
     if not query or not query.data or not update.effective_user:
         return
@@ -146,12 +134,8 @@ async def inline_start_callback(
 
     clicker = update.effective_user
     bot = context.bot.username or "bot"
-
     if clicker.id != owner_id:
-        await query.answer(
-            strings.NOT_YOUR_GAME.format(bot=bot),
-            show_alert=True,
-        )
+        await query.answer(strings.NOT_YOUR_GAME.format(bot=bot), show_alert=True)
         return
 
     mgr = sessions(context)
@@ -170,16 +154,12 @@ async def inline_start_callback(
             phase=GamePhase.PENDING,
         )
     elif session.user_id != owner_id or session.user_id != clicker.id:
-        await query.answer(
-            strings.NOT_YOUR_GAME.format(bot=bot),
-            show_alert=True,
-        )
+        await query.answer(strings.NOT_YOUR_GAME.format(bot=bot), show_alert=True)
         return
 
     if session.phase not in (GamePhase.PENDING,):
         await query.answer("Game already started.")
         return
-
     if session.lock.locked():
         await query.answer(strings.GAME_BUSY)
         return
@@ -189,7 +169,6 @@ async def inline_start_callback(
 
     await query.answer()
     await _edit_inline_text(context.bot, session, strings.LOADING)
-
     session.phase = GamePhase.PLAYING
     await _bootstrap_game(context, session)
 

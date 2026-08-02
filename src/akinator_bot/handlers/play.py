@@ -14,6 +14,8 @@ from akinator_bot.handlers.common import db, ensure_user, games, sessions
 from akinator_bot.keyboards import play_again_keyboard, play_keyboard, win_keyboard
 from akinator_bot.sessions import GamePhase, GameSession
 
+logger = logging.getLogger(__name__)
+
 
 def _file_media(path, caption: str | None = None) -> InputMediaPhoto:
     # PTB/httpx need a real file handle or path string, not pathlib.Path
@@ -22,8 +24,6 @@ def _file_media(path, caption: str | None = None) -> InputMediaPhoto:
         caption=caption,
         parse_mode=ParseMode.HTML if caption else None,
     )
-
-logger = logging.getLogger(__name__)
 
 
 def _progress_caption(question: str | None, step: str | int | None, progression: str | None) -> str:
@@ -44,28 +44,18 @@ async def _edit_inline_text(
     session: GameSession,
     text: str,
     reply_markup=None,
-    *,
-    preview_url: str | None = None,
 ) -> None:
-    """Edit an inline text message. Optional preview_url shows a large image preview."""
+    """Edit an inline message as pure text (no images, no link previews)."""
     if not session.inline_message_id:
         return
-    kwargs: dict = {
-        "text": text,
-        "inline_message_id": session.inline_message_id,
-        "parse_mode": ParseMode.HTML,
-        "reply_markup": reply_markup,
-    }
-    if preview_url:
-        kwargs["link_preview_options"] = LinkPreviewOptions(
-            url=preview_url,
-            prefer_large_media=True,
-            show_above_text=False,
-        )
-    else:
-        kwargs["link_preview_options"] = LinkPreviewOptions(is_disabled=True)
     try:
-        await bot.edit_message_text(**kwargs)
+        await bot.edit_message_text(
+            text=text,
+            inline_message_id=session.inline_message_id,
+            parse_mode=ParseMode.HTML,
+            reply_markup=reply_markup,
+            link_preview_options=LinkPreviewOptions(is_disabled=True),
+        )
     except BadRequest as e:
         if "not modified" in str(e).lower():
             return
@@ -78,7 +68,7 @@ async def _edit_caption(
     caption: str,
     reply_markup=None,
 ) -> None:
-    """Update DM photo caption, or inline text (no photo during play)."""
+    """Update DM photo caption, or inline text."""
     if session.inline_message_id:
         await _edit_inline_text(bot, session, caption, reply_markup=reply_markup)
         return
@@ -103,27 +93,14 @@ async def _edit_media(
     session: GameSession,
     media: InputMediaPhoto,
     reply_markup=None,
-    replace_photo: bool | None = None,
-    preview_url: str | None = None,
 ) -> None:
-    """Edit DM photo message, or inline text (photos only via link preview at end)."""
+    """Update the game message.
+
+    - Inline: text only (never photos).
+    - Direct /play: real photo edits (akitudes + final answer images).
+    """
     if session.inline_message_id:
-        # Inline stays pure text during Q&A. Optional large link preview for the
-        # character image only when preview_url is set (correct final answer).
         await _edit_inline_text(
-            bot,
-            session,
-            media.caption or "",
-            reply_markup=reply_markup,
-            preview_url=preview_url,
-        )
-        return
-
-    if replace_photo is None:
-        replace_photo = True
-
-    if not replace_photo:
-        await _edit_caption(
             bot,
             session,
             media.caption or "",
@@ -428,32 +405,36 @@ async def win_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
                 desc=desc_line,
             )
             if session.is_inline:
-                # Text + large link preview of the character image only on correct
                 await _edit_inline_text(
                     context.bot,
                     session,
                     caption,
                     reply_markup=None,
-                    preview_url=guess_photo,
                 )
             else:
-                photo = svc.win_photo()
-                media = (
-                    _file_media(photo, caption)
-                    if photo.exists()
-                    else InputMediaPhoto(
-                        media=guess_photo
-                        or "https://en.akinator.com/assets/img/akitudes_670x1096/triomphe.png",
+                # Direct play: show the actual character photo as the final answer
+                if guess_photo:
+                    media = InputMediaPhoto(
+                        media=guess_photo,
                         caption=caption,
                         parse_mode=ParseMode.HTML,
                     )
-                )
+                else:
+                    photo = svc.win_photo()
+                    media = (
+                        _file_media(photo, caption)
+                        if photo.exists()
+                        else InputMediaPhoto(
+                            media="https://en.akinator.com/assets/img/akitudes_670x1096/triomphe.png",
+                            caption=caption,
+                            parse_mode=ParseMode.HTML,
+                        )
+                    )
                 await _edit_media(
                     bot=context.bot,
                     session=session,
                     media=media,
                     reply_markup=play_again_keyboard(),
-                    replace_photo=True,
                 )
         else:
             await database.record_wrong(session.user_id)
@@ -468,25 +449,31 @@ async def win_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
                     session,
                     caption,
                     reply_markup=None,
-                    preview_url=None,
                 )
             else:
-                photo = svc.defeat_photo()
-                media = (
-                    _file_media(photo, caption)
-                    if photo.exists()
-                    else InputMediaPhoto(
-                        media="https://en.akinator.com/assets/img/akitudes_670x1096/deception.png",
+                # Still show the guess photo if we have it, else defeat art
+                if guess_photo:
+                    media = InputMediaPhoto(
+                        media=guess_photo,
                         caption=caption,
                         parse_mode=ParseMode.HTML,
                     )
-                )
+                else:
+                    photo = svc.defeat_photo()
+                    media = (
+                        _file_media(photo, caption)
+                        if photo.exists()
+                        else InputMediaPhoto(
+                            media="https://en.akinator.com/assets/img/akitudes_670x1096/deception.png",
+                            caption=caption,
+                            parse_mode=ParseMode.HTML,
+                        )
+                    )
                 await _edit_media(
                     bot=context.bot,
                     session=session,
                     media=media,
                     reply_markup=play_again_keyboard(),
-                    replace_photo=True,
                 )
         session.phase = GamePhase.DONE
         await mgr.remove(session.session_id)
