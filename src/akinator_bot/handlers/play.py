@@ -74,7 +74,6 @@ async def _edit_media(
     session: GameSession,
     media: InputMediaPhoto,
     reply_markup=None,
-    *,
     replace_photo: bool | None = None,
 ) -> None:
     """Edit message media/caption.
