@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 
-from telegram import InputFile, InputMediaPhoto, Message, Update
+from telegram import InputFile, InputMediaPhoto, LinkPreviewOptions, Message, Update
 from telegram.constants import ParseMode
 from telegram.error import BadRequest
 from telegram.ext import Application, CallbackQueryHandler, CommandHandler, ContextTypes
@@ -39,22 +39,51 @@ def _progress_caption(question: str | None, step: str | int | None, progression:
     return f"<b>Q{step_n}</b>  {bar} {prog:.0f}%\n\n{q}"
 
 
+async def _edit_inline_text(
+    bot,
+    session: GameSession,
+    text: str,
+    reply_markup=None,
+    *,
+    preview_url: str | None = None,
+) -> None:
+    """Edit an inline text message. Optional preview_url shows a large image preview."""
+    if not session.inline_message_id:
+        return
+    kwargs: dict = {
+        "text": text,
+        "inline_message_id": session.inline_message_id,
+        "parse_mode": ParseMode.HTML,
+        "reply_markup": reply_markup,
+    }
+    if preview_url:
+        kwargs["link_preview_options"] = LinkPreviewOptions(
+            url=preview_url,
+            prefer_large_media=True,
+            show_above_text=False,
+        )
+    else:
+        kwargs["link_preview_options"] = LinkPreviewOptions(is_disabled=True)
+    try:
+        await bot.edit_message_text(**kwargs)
+    except BadRequest as e:
+        if "not modified" in str(e).lower():
+            return
+        logger.warning("edit_inline_text failed: %s", e)
+
+
 async def _edit_caption(
     bot,
     session: GameSession,
     caption: str,
     reply_markup=None,
 ) -> None:
-    """Update caption only (keeps existing photo for inline games)."""
+    """Update DM photo caption, or inline text (no photo during play)."""
+    if session.inline_message_id:
+        await _edit_inline_text(bot, session, caption, reply_markup=reply_markup)
+        return
     try:
-        if session.inline_message_id:
-            await bot.edit_message_caption(
-                caption=caption,
-                inline_message_id=session.inline_message_id,
-                parse_mode=ParseMode.HTML,
-                reply_markup=reply_markup,
-            )
-        elif session.chat_id and session.message_id:
+        if session.chat_id and session.message_id:
             await bot.edit_message_caption(
                 chat_id=session.chat_id,
                 message_id=session.message_id,
@@ -75,15 +104,23 @@ async def _edit_media(
     media: InputMediaPhoto,
     reply_markup=None,
     replace_photo: bool | None = None,
+    preview_url: str | None = None,
 ) -> None:
-    """Edit message media/caption.
+    """Edit DM photo message, or inline text (photos only via link preview at end)."""
+    if session.inline_message_id:
+        # Inline stays pure text during Q&A. Optional large link preview for the
+        # character image only when preview_url is set (correct final answer).
+        await _edit_inline_text(
+            bot,
+            session,
+            media.caption or "",
+            reply_markup=reply_markup,
+            preview_url=preview_url,
+        )
+        return
 
-    Inline games start as a photo. During questions we only change the caption.
-    Pass replace_photo=True to swap the image (e.g. character photo on a correct
-    final answer). Private /play messages always replace the photo by default.
-    """
     if replace_photo is None:
-        replace_photo = not session.is_inline
+        replace_photo = True
 
     if not replace_photo:
         await _edit_caption(
@@ -95,13 +132,7 @@ async def _edit_media(
         return
 
     try:
-        if session.inline_message_id:
-            await bot.edit_message_media(
-                media=media,
-                inline_message_id=session.inline_message_id,
-                reply_markup=reply_markup,
-            )
-        elif session.chat_id and session.message_id:
+        if session.chat_id and session.message_id:
             await bot.edit_message_media(
                 media=media,
                 chat_id=session.chat_id,
@@ -396,19 +427,14 @@ async def win_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
                 name=guess_name,
                 desc=desc_line,
             )
-            # Inline: show character photo only on a correct final answer
-            if session.is_inline and guess_photo:
-                media = InputMediaPhoto(
-                    media=guess_photo,
-                    caption=caption,
-                    parse_mode=ParseMode.HTML,
-                )
-                await _edit_media(
-                    bot=context.bot,
-                    session=session,
-                    media=media,
+            if session.is_inline:
+                # Text + large link preview of the character image only on correct
+                await _edit_inline_text(
+                    context.bot,
+                    session,
+                    caption,
                     reply_markup=None,
-                    replace_photo=True,
+                    preview_url=guess_photo,
                 )
             else:
                 photo = svc.win_photo()
@@ -426,7 +452,7 @@ async def win_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
                     bot=context.bot,
                     session=session,
                     media=media,
-                    reply_markup=play_again_keyboard() if not session.is_inline else None,
+                    reply_markup=play_again_keyboard(),
                     replace_photo=True,
                 )
         else:
@@ -437,12 +463,12 @@ async def win_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
                 desc=desc_line,
             )
             if session.is_inline:
-                # Keep the original generic photo; only update caption
-                await _edit_caption(
+                await _edit_inline_text(
                     context.bot,
                     session,
                     caption,
                     reply_markup=None,
+                    preview_url=None,
                 )
             else:
                 photo = svc.defeat_photo()

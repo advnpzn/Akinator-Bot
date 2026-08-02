@@ -7,8 +7,10 @@ import logging
 import uuid
 
 from telegram import (
-    InlineQueryResultPhoto,
+    InlineQueryResultArticle,
     InlineQueryResultsButton,
+    InputTextMessageContent,
+    LinkPreviewOptions,
     Update,
 )
 from telegram.constants import ParseMode
@@ -22,17 +24,11 @@ from telegram.ext import (
 
 from akinator_bot import strings
 from akinator_bot.handlers.common import ensure_user, sessions
-from akinator_bot.handlers.play import _bootstrap_game, _edit_caption
+from akinator_bot.handlers.play import _bootstrap_game, _edit_inline_text
 from akinator_bot.keyboards import inline_start_keyboard
 from akinator_bot.sessions import GamePhase
 
 logger = logging.getLogger(__name__)
-
-# Generic Akinator image for the inline photo message (questions stay caption-only).
-# Character art is only swapped in on a correct final answer.
-INLINE_PLACEHOLDER_PHOTO = (
-    "https://en.akinator.com/assets/img/akitudes_670x1096/defi.png"
-)
 
 # result_id -> pending inline start payload stored briefly
 _PENDING: dict[str, dict] = {}
@@ -59,17 +55,20 @@ async def inline_query(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         for k in list(_PENDING.keys())[:1000]:
             _PENDING.pop(k, None)
 
-    # Photo result so the message is media-type and we can swap the image
-    # only when the guess is confirmed correct.
+    # Pure text article: no photo while answering questions.
+    # Character image is shown only on a correct final answer (link preview).
     results = [
-        InlineQueryResultPhoto(
+        InlineQueryResultArticle(
             id=result_id,
-            photo_url=INLINE_PLACEHOLDER_PHOTO,
-            thumbnail_url=INLINE_PLACEHOLDER_PHOTO,
             title=strings.INLINE_TITLE,
             description=strings.INLINE_DESC,
-            caption=strings.INLINE_START_TEXT.format(owner=_owner_label(owner)),
-            parse_mode=ParseMode.HTML,
+            input_message_content=InputTextMessageContent(
+                message_text=strings.INLINE_START_TEXT.format(
+                    owner=_owner_label(owner)
+                ),
+                parse_mode=ParseMode.HTML,
+                link_preview_options=LinkPreviewOptions(is_disabled=True),
+            ),
             reply_markup=inline_start_keyboard("pending", owner.id),
         )
     ]
@@ -113,13 +112,14 @@ async def chosen_inline(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
     )
 
     try:
-        await context.bot.edit_message_caption(
-            caption=strings.INLINE_START_TEXT.format(
+        await context.bot.edit_message_text(
+            text=strings.INLINE_START_TEXT.format(
                 owner=_owner_label(update.effective_user)
             ),
             inline_message_id=inline_message_id,
             parse_mode=ParseMode.HTML,
             reply_markup=inline_start_keyboard(session.session_id, session.user_id),
+            link_preview_options=LinkPreviewOptions(is_disabled=True),
         )
     except Exception as e:
         logger.warning("failed to bind inline session: %s", e)
@@ -133,7 +133,6 @@ async def inline_start_callback(
     if not query or not query.data or not update.effective_user:
         return
 
-    # is:{session_id|pending}:{owner_id}
     parts = query.data.split(":")
     if len(parts) != 3:
         await query.answer("Invalid button.", show_alert=True)
@@ -189,7 +188,7 @@ async def inline_start_callback(
         session.inline_message_id = query.inline_message_id
 
     await query.answer()
-    await _edit_caption(context.bot, session, strings.LOADING)
+    await _edit_inline_text(context.bot, session, strings.LOADING)
 
     session.phase = GamePhase.PLAYING
     await _bootstrap_game(context, session)
