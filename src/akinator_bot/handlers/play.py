@@ -38,6 +38,35 @@ def _progress_caption(question: str | None, step: str | int | None, progression:
     return f"<b>Q{step_n}</b>  {bar} {prog:.0f}%\n\n{q}"
 
 
+async def _edit_text(
+    bot,
+    session: GameSession,
+    text: str,
+    reply_markup=None,
+) -> None:
+    """Edit an inline (text) message. Inline games stay text-only."""
+    try:
+        if session.inline_message_id:
+            await bot.edit_message_text(
+                text=text,
+                inline_message_id=session.inline_message_id,
+                parse_mode=ParseMode.HTML,
+                reply_markup=reply_markup,
+            )
+        elif session.chat_id and session.message_id:
+            await bot.edit_message_text(
+                text=text,
+                chat_id=session.chat_id,
+                message_id=session.message_id,
+                parse_mode=ParseMode.HTML,
+                reply_markup=reply_markup,
+            )
+    except BadRequest as e:
+        if "not modified" in str(e).lower():
+            return
+        logger.warning("edit_text failed: %s", e)
+
+
 async def _edit_media(
     *,
     bot,
@@ -45,14 +74,17 @@ async def _edit_media(
     media: InputMediaPhoto,
     reply_markup=None,
 ) -> None:
+    # Inline messages start as text articles - Telegram cannot turn them into photos.
+    if session.inline_message_id:
+        await _edit_text(
+            bot,
+            session,
+            media.caption or "",
+            reply_markup=reply_markup,
+        )
+        return
     try:
-        if session.inline_message_id:
-            await bot.edit_message_media(
-                media=media,
-                inline_message_id=session.inline_message_id,
-                reply_markup=reply_markup,
-            )
-        elif session.chat_id and session.message_id:
+        if session.chat_id and session.message_id:
             await bot.edit_message_media(
                 media=media,
                 chat_id=session.chat_id,
@@ -60,20 +92,12 @@ async def _edit_media(
                 reply_markup=reply_markup,
             )
     except BadRequest as e:
-        # caption-only fallback if media identical
         if "not modified" in str(e).lower():
             return
         logger.warning("edit_media failed: %s", e)
         try:
             caption = media.caption or ""
-            if session.inline_message_id:
-                await bot.edit_message_caption(
-                    inline_message_id=session.inline_message_id,
-                    caption=caption,
-                    parse_mode=ParseMode.HTML,
-                    reply_markup=reply_markup,
-                )
-            elif session.chat_id and session.message_id:
+            if session.chat_id and session.message_id:
                 await bot.edit_message_caption(
                     chat_id=session.chat_id,
                     message_id=session.message_id,
@@ -91,15 +115,11 @@ async def _edit_caption(
     caption: str,
     reply_markup=None,
 ) -> None:
+    if session.inline_message_id:
+        await _edit_text(bot, session, caption, reply_markup=reply_markup)
+        return
     try:
-        if session.inline_message_id:
-            await bot.edit_message_caption(
-                inline_message_id=session.inline_message_id,
-                caption=caption,
-                parse_mode=ParseMode.HTML,
-                reply_markup=reply_markup,
-            )
-        elif session.chat_id and session.message_id:
+        if session.chat_id and session.message_id:
             await bot.edit_message_caption(
                 chat_id=session.chat_id,
                 message_id=session.message_id,

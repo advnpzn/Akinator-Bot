@@ -43,7 +43,20 @@ class GameService:
         return self.asset("aki_defeat.png")
 
     def akitude_url(self, aki: Akinator) -> str:
+        # Prefer akipy's region-aware helper when available
+        try:
+            url = getattr(aki, "akitude_url", None)
+            if callable(url):
+                got = url()
+                if got:
+                    return str(got)
+            if isinstance(url, str) and url:
+                return url
+        except Exception:
+            pass
         name = aki.akitude or "defi.png"
+        if name.startswith("http"):
+            return name
         return f"{AKITUDE_BASE}/{name}"
 
     def question_media(self, aki: Akinator, caption: str) -> InputMediaPhoto:

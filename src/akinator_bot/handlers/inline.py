@@ -7,6 +7,7 @@ import uuid
 
 from telegram import (
     InlineQueryResultArticle,
+    InlineQueryResultsButton,
     InputTextMessageContent,
     Update,
 )
@@ -36,41 +37,39 @@ async def inline_query(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
     if not query or not update.effective_user:
         return
 
-    # Always show Play; optional filter by query text
-    q = (query.query or "").strip().lower()
-    results: list[InlineQueryResultArticle] = []
+    # Always offer Play (any query text) so the client never spins forever
+    result_id = f"play:{uuid.uuid4().hex[:12]}"
+    _PENDING[result_id] = {
+        "user_id": update.effective_user.id,
+    }
+    if len(_PENDING) > 2000:
+        for k in list(_PENDING.keys())[:1000]:
+            _PENDING.pop(k, None)
 
-    if not q or q in {"play", "game", "aki", "start"} or "play" in q or "aki" in q:
-        result_id = f"play:{uuid.uuid4().hex[:12]}"
-        _PENDING[result_id] = {
-            "user_id": update.effective_user.id,
-        }
-        # prune
-        if len(_PENDING) > 2000:
-            for k in list(_PENDING.keys())[:1000]:
-                _PENDING.pop(k, None)
-
-        results.append(
-            InlineQueryResultArticle(
-                id=result_id,
-                title=strings.INLINE_TITLE,
-                description=strings.INLINE_DESC,
-                thumbnail_url="https://en.akinator.com/assets/img/akitudes_670x1096/defi.png",
-                input_message_content=InputTextMessageContent(
-                    message_text=strings.INLINE_START_TEXT,
-                    parse_mode=ParseMode.HTML,
-                ),
-                # placeholder keyboard; replaced on chosen_inline_result with real session
-                reply_markup=inline_start_keyboard("pending"),
-            )
+    results = [
+        InlineQueryResultArticle(
+            id=result_id,
+            title=strings.INLINE_TITLE,
+            description=strings.INLINE_DESC,
+            thumbnail_url="https://en.akinator.com/assets/img/akitudes_670x1096/defi.png",
+            input_message_content=InputTextMessageContent(
+                message_text=strings.INLINE_START_TEXT,
+                parse_mode=ParseMode.HTML,
+            ),
+            # placeholder keyboard; replaced on chosen_inline_result with real session
+            reply_markup=inline_start_keyboard("pending"),
         )
+    ]
 
+    # PTB v21+: switch_pm_* was replaced by button=
     await query.answer(
         results,
         cache_time=5,
         is_personal=True,
-        switch_pm_text="Open bot settings",
-        switch_pm_parameter="inline",
+        button=InlineQueryResultsButton(
+            text="Open bot",
+            start_parameter="inline",
+        ),
     )
 
 
@@ -157,16 +156,7 @@ async def inline_start_callback(
         session.inline_message_id = query.inline_message_id
 
     await query.answer()
-    from telegram import InputMediaPhoto
-
-    loading_url = "https://en.akinator.com/assets/img/akitudes_670x1096/defi.png"
-    try:
-        await context.bot.edit_message_media(
-            media=InputMediaPhoto(media=loading_url, caption=strings.LOADING),
-            inline_message_id=session.inline_message_id,
-        )
-    except Exception:
-        await _edit_caption(context.bot, session, strings.LOADING)
+    await _edit_caption(context.bot, session, strings.LOADING)
 
     session.phase = GamePhase.PLAYING
     await _bootstrap_game(context, session)
