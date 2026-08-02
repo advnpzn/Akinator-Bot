@@ -7,9 +7,8 @@ import logging
 import uuid
 
 from telegram import (
-    InlineQueryResultArticle,
+    InlineQueryResultPhoto,
     InlineQueryResultsButton,
-    InputTextMessageContent,
     Update,
 )
 from telegram.constants import ParseMode
@@ -28,6 +27,12 @@ from akinator_bot.keyboards import inline_start_keyboard
 from akinator_bot.sessions import GamePhase
 
 logger = logging.getLogger(__name__)
+
+# Generic Akinator image for the inline photo message (questions stay caption-only).
+# Character art is only swapped in on a correct final answer.
+INLINE_PLACEHOLDER_PHOTO = (
+    "https://en.akinator.com/assets/img/akitudes_670x1096/defi.png"
+)
 
 # result_id -> pending inline start payload stored briefly
 _PENDING: dict[str, dict] = {}
@@ -54,17 +59,17 @@ async def inline_query(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         for k in list(_PENDING.keys())[:1000]:
             _PENDING.pop(k, None)
 
+    # Photo result so the message is media-type and we can swap the image
+    # only when the guess is confirmed correct.
     results = [
-        InlineQueryResultArticle(
+        InlineQueryResultPhoto(
             id=result_id,
+            photo_url=INLINE_PLACEHOLDER_PHOTO,
+            thumbnail_url=INLINE_PLACEHOLDER_PHOTO,
             title=strings.INLINE_TITLE,
             description=strings.INLINE_DESC,
-            thumbnail_url="https://en.akinator.com/assets/img/akitudes_670x1096/defi.png",
-            input_message_content=InputTextMessageContent(
-                message_text=strings.INLINE_START_TEXT.format(owner=_owner_label(owner)),
-                parse_mode=ParseMode.HTML,
-            ),
-            # Owner id is baked into the button so only they can claim the game
+            caption=strings.INLINE_START_TEXT.format(owner=_owner_label(owner)),
+            parse_mode=ParseMode.HTML,
             reply_markup=inline_start_keyboard("pending", owner.id),
         )
     ]
@@ -108,8 +113,8 @@ async def chosen_inline(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
     )
 
     try:
-        await context.bot.edit_message_text(
-            text=strings.INLINE_START_TEXT.format(
+        await context.bot.edit_message_caption(
+            caption=strings.INLINE_START_TEXT.format(
                 owner=_owner_label(update.effective_user)
             ),
             inline_message_id=inline_message_id,
@@ -143,7 +148,6 @@ async def inline_start_callback(
     clicker = update.effective_user
     bot = context.bot.username or "bot"
 
-    # Hard gate: only the user who posted the inline game may start it
     if clicker.id != owner_id:
         await query.answer(
             strings.NOT_YOUR_GAME.format(bot=bot),
@@ -159,7 +163,6 @@ async def inline_start_callback(
             await query.answer(strings.GAME_EXPIRED, show_alert=True)
             return
         user_row = await ensure_user(update, context)
-        # Always create under the verified owner_id (clicker == owner)
         session = await mgr.create(
             owner_id,
             language=user_row.aki_lang,

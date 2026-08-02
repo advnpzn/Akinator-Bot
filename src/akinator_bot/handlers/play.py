@@ -39,33 +39,33 @@ def _progress_caption(question: str | None, step: str | int | None, progression:
     return f"<b>Q{step_n}</b>  {bar} {prog:.0f}%\n\n{q}"
 
 
-async def _edit_text(
+async def _edit_caption(
     bot,
     session: GameSession,
-    text: str,
+    caption: str,
     reply_markup=None,
 ) -> None:
-    """Edit an inline (text) message. Inline games stay text-only."""
+    """Update caption only (keeps existing photo for inline games)."""
     try:
         if session.inline_message_id:
-            await bot.edit_message_text(
-                text=text,
+            await bot.edit_message_caption(
+                caption=caption,
                 inline_message_id=session.inline_message_id,
                 parse_mode=ParseMode.HTML,
                 reply_markup=reply_markup,
             )
         elif session.chat_id and session.message_id:
-            await bot.edit_message_text(
-                text=text,
+            await bot.edit_message_caption(
                 chat_id=session.chat_id,
                 message_id=session.message_id,
+                caption=caption,
                 parse_mode=ParseMode.HTML,
                 reply_markup=reply_markup,
             )
     except BadRequest as e:
         if "not modified" in str(e).lower():
             return
-        logger.warning("edit_text failed: %s", e)
+        logger.warning("edit_caption failed: %s", e)
 
 
 async def _edit_media(
@@ -74,18 +74,35 @@ async def _edit_media(
     session: GameSession,
     media: InputMediaPhoto,
     reply_markup=None,
+    *,
+    replace_photo: bool | None = None,
 ) -> None:
-    # Inline messages start as text articles - Telegram cannot turn them into photos.
-    if session.inline_message_id:
-        await _edit_text(
+    """Edit message media/caption.
+
+    Inline games start as a photo. During questions we only change the caption.
+    Pass replace_photo=True to swap the image (e.g. character photo on a correct
+    final answer). Private /play messages always replace the photo by default.
+    """
+    if replace_photo is None:
+        replace_photo = not session.is_inline
+
+    if not replace_photo:
+        await _edit_caption(
             bot,
             session,
             media.caption or "",
             reply_markup=reply_markup,
         )
         return
+
     try:
-        if session.chat_id and session.message_id:
+        if session.inline_message_id:
+            await bot.edit_message_media(
+                media=media,
+                inline_message_id=session.inline_message_id,
+                reply_markup=reply_markup,
+            )
+        elif session.chat_id and session.message_id:
             await bot.edit_message_media(
                 media=media,
                 chat_id=session.chat_id,
@@ -96,40 +113,12 @@ async def _edit_media(
         if "not modified" in str(e).lower():
             return
         logger.warning("edit_media failed: %s", e)
-        try:
-            caption = media.caption or ""
-            if session.chat_id and session.message_id:
-                await bot.edit_message_caption(
-                    chat_id=session.chat_id,
-                    message_id=session.message_id,
-                    caption=caption,
-                    parse_mode=ParseMode.HTML,
-                    reply_markup=reply_markup,
-                )
-        except BadRequest:
-            pass
-
-
-async def _edit_caption(
-    bot,
-    session: GameSession,
-    caption: str,
-    reply_markup=None,
-) -> None:
-    if session.inline_message_id:
-        await _edit_text(bot, session, caption, reply_markup=reply_markup)
-        return
-    try:
-        if session.chat_id and session.message_id:
-            await bot.edit_message_caption(
-                chat_id=session.chat_id,
-                message_id=session.message_id,
-                caption=caption,
-                parse_mode=ParseMode.HTML,
-                reply_markup=reply_markup,
-            )
-    except BadRequest as e:
-        logger.debug("edit_caption: %s", e)
+        await _edit_caption(
+            bot,
+            session,
+            media.caption or "",
+            reply_markup=reply_markup,
+        )
 
 
 async def start_game_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -373,6 +362,7 @@ async def win_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         aki = session.aki
         guess_name = (aki.name_proposition if aki else None) or "???"
         guess_desc = (aki.description_proposition if aki else None) or ""
+        guess_photo = (aki.photo if aki else None) or None
         desc_line = f"<i>{guess_desc}</i>\n\n" if guess_desc else "\n"
 
         try:
@@ -403,31 +393,76 @@ async def win_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         if yes:
             await database.record_correct(session.user_id)
             await database.log_event("game_win", session.user_id, session.session_id)
-            photo = svc.win_photo()
             caption = strings.CORRECT_CAPTION.format(
                 name=guess_name,
                 desc=desc_line,
             )
+            # Inline: show character photo only on a correct final answer
+            if session.is_inline and guess_photo:
+                media = InputMediaPhoto(
+                    media=guess_photo,
+                    caption=caption,
+                    parse_mode=ParseMode.HTML,
+                )
+                await _edit_media(
+                    bot=context.bot,
+                    session=session,
+                    media=media,
+                    reply_markup=None,
+                    replace_photo=True,
+                )
+            else:
+                photo = svc.win_photo()
+                media = (
+                    _file_media(photo, caption)
+                    if photo.exists()
+                    else InputMediaPhoto(
+                        media=guess_photo
+                        or "https://en.akinator.com/assets/img/akitudes_670x1096/triomphe.png",
+                        caption=caption,
+                        parse_mode=ParseMode.HTML,
+                    )
+                )
+                await _edit_media(
+                    bot=context.bot,
+                    session=session,
+                    media=media,
+                    reply_markup=play_again_keyboard() if not session.is_inline else None,
+                    replace_photo=True,
+                )
         else:
             await database.record_wrong(session.user_id)
             await database.log_event("game_lose", session.user_id, session.session_id)
-            photo = svc.defeat_photo()
             caption = strings.WRONG_CAPTION.format(
                 name=guess_name,
                 desc=desc_line,
             )
-
-        media = _file_media(photo, caption) if photo.exists() else InputMediaPhoto(
-            media="https://en.akinator.com/assets/img/akitudes_670x1096/triomphe.png",
-            caption=caption,
-            parse_mode=ParseMode.HTML,
-        )
-        await _edit_media(
-            bot=context.bot,
-            session=session,
-            media=media,
-            reply_markup=play_again_keyboard() if not session.is_inline else None,
-        )
+            if session.is_inline:
+                # Keep the original generic photo; only update caption
+                await _edit_caption(
+                    context.bot,
+                    session,
+                    caption,
+                    reply_markup=None,
+                )
+            else:
+                photo = svc.defeat_photo()
+                media = (
+                    _file_media(photo, caption)
+                    if photo.exists()
+                    else InputMediaPhoto(
+                        media="https://en.akinator.com/assets/img/akitudes_670x1096/deception.png",
+                        caption=caption,
+                        parse_mode=ParseMode.HTML,
+                    )
+                )
+                await _edit_media(
+                    bot=context.bot,
+                    session=session,
+                    media=media,
+                    reply_markup=play_again_keyboard(),
+                    replace_photo=True,
+                )
         session.phase = GamePhase.DONE
         await mgr.remove(session.session_id)
 
