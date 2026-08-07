@@ -1,13 +1,13 @@
-# Akinator Bot (v2)
+# Akinator Bot
 
-Modern, concurrent Telegram bot for the Akinator guessing game.
+Telegram bot for the Akinator guessing game (unofficial)
 
 - **akipy 1.6.0** (async API) with **TRAWL** / FlareSolverr Cloudflare bypass
 - **SQLite** (WAL) via `aiosqlite`
 - **uv** packaging, **Docker Compose**, `.env` config
 - **Inline mode** - play in any group/chat via `@your_bot play`
 - Per-user session locks + global API semaphore for multi-user load
-- Modern leaderboard (correct / win rate / games / questions)
+- Leaderboard (correct / win rate / games / questions)
 - Admin panel (`ADMIN_IDS` + optional `ADMIN_SECRET`) with secret-safe logging
 
 ## Quick start (local)
@@ -38,8 +38,6 @@ uv run akinator-bot
 | `ADMIN_SECRET` | Optional `/admin <secret>` unlock |
 | `MAX_CONCURRENT_AKI_CALLS` | Semaphore for Akinator HTTP (default 32) |
 | `SESSION_TTL_SECONDS` | Idle game expiry (default 1800) |
-
-This host already runs TRAWL at `http://127.0.0.1:8193` and `https://trawl.advnpzn.dev`.
 
 ## Docker
 
