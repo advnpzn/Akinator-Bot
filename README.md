@@ -2,6 +2,8 @@
 
 Telegram bot for the Akinator guessing game (unofficial)
 
+Live Instance available on Telegram: [@aki_akinator_bot](https://t.me/aki_akinator_bot)
+
 - **akipy 1.6.0** (async API) with **TRAWL** / FlareSolverr Cloudflare bypass
 - **SQLite** (WAL) via `aiosqlite`
 - **uv** packaging, **Docker Compose**, `.env` config
