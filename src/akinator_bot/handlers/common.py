@@ -45,6 +45,7 @@ async def ensure_user(update: Update, context: ContextTypes.DEFAULT_TYPE):
         language_code=user.language_code,
         default_aki_lang=cfg.default_language,
         default_child_mode=cfg.default_child_mode,
+        default_theme=cfg.game_theme,
     )
 
 

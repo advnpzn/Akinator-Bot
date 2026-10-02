@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import html
 import logging
 
 from telegram import Update
@@ -20,14 +21,12 @@ async def cmd_me(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     await send_me(update, context, edit=False)
 
 
-async def send_me(
-    update: Update, context: ContextTypes.DEFAULT_TYPE, *, edit: bool
-) -> None:
+async def send_me(update: Update, context: ContextTypes.DEFAULT_TYPE, *, edit: bool) -> None:
     user_row = await ensure_user(update, context)
     theme = normalize_theme(user_row.aki_theme, user_row.aki_lang)
     text = strings.ME_MSG.format(
-        name=user_row.first_name or "-",
-        username=user_row.username or "-",
+        name=html.escape(user_row.first_name or "-"),
+        username=html.escape(user_row.username or "-"),
         user_id=user_row.user_id,
         lang=strings.AKI_LANG_CODE.get(user_row.aki_lang, user_row.aki_lang),
         theme=theme_label(theme),
@@ -40,9 +39,7 @@ async def send_me(
         win_rate=user_row.win_rate,
     )
     if edit and update.callback_query and update.callback_query.message:
-        await update.callback_query.edit_message_text(
-            text, parse_mode=ParseMode.HTML
-        )
+        await update.callback_query.edit_message_text(text, parse_mode=ParseMode.HTML)
     elif update.message:
         await update.message.reply_text(text, parse_mode=ParseMode.HTML)
     elif update.callback_query:
@@ -55,9 +52,7 @@ async def cmd_language(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
     await show_language(update, context, edit=False)
 
 
-async def show_language(
-    update: Update, context: ContextTypes.DEFAULT_TYPE, *, edit: bool
-) -> None:
+async def show_language(update: Update, context: ContextTypes.DEFAULT_TYPE, *, edit: bool) -> None:
     user_row = await ensure_user(update, context)
     text = strings.LANG_MSG.format(
         lang=strings.AKI_LANG_CODE.get(user_row.aki_lang, user_row.aki_lang)
@@ -68,9 +63,7 @@ async def show_language(
             text, parse_mode=ParseMode.HTML, reply_markup=markup
         )
     elif update.message:
-        await update.message.reply_text(
-            text, parse_mode=ParseMode.HTML, reply_markup=markup
-        )
+        await update.message.reply_text(text, parse_mode=ParseMode.HTML, reply_markup=markup)
 
 
 async def set_language(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -99,9 +92,7 @@ async def cmd_theme(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     await show_theme(update, context, edit=False)
 
 
-async def show_theme(
-    update: Update, context: ContextTypes.DEFAULT_TYPE, *, edit: bool
-) -> None:
+async def show_theme(update: Update, context: ContextTypes.DEFAULT_TYPE, *, edit: bool) -> None:
     user_row = await ensure_user(update, context)
     available = themes_for_language(user_row.aki_lang)
     current = normalize_theme(user_row.aki_theme, user_row.aki_lang)
@@ -112,9 +103,7 @@ async def show_theme(
             text, parse_mode=ParseMode.HTML, reply_markup=markup
         )
     elif update.message:
-        await update.message.reply_text(
-            text, parse_mode=ParseMode.HTML, reply_markup=markup
-        )
+        await update.message.reply_text(text, parse_mode=ParseMode.HTML, reply_markup=markup)
 
 
 async def set_theme(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -143,9 +132,7 @@ async def cmd_childmode(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
     await show_childmode(update, context, edit=False)
 
 
-async def show_childmode(
-    update: Update, context: ContextTypes.DEFAULT_TYPE, *, edit: bool
-) -> None:
+async def show_childmode(update: Update, context: ContextTypes.DEFAULT_TYPE, *, edit: bool) -> None:
     user_row = await ensure_user(update, context)
     status = "enabled" if user_row.child_mode else "disabled"
     text = strings.CHILD_MSG.format(status=status)
@@ -155,9 +142,7 @@ async def show_childmode(
             text, parse_mode=ParseMode.HTML, reply_markup=markup
         )
     elif update.message:
-        await update.message.reply_text(
-            text, parse_mode=ParseMode.HTML, reply_markup=markup
-        )
+        await update.message.reply_text(text, parse_mode=ParseMode.HTML, reply_markup=markup)
 
 
 async def set_childmode(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:

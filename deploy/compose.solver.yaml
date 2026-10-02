@@ -1,0 +1,21 @@
+# Optional browser-based solver, with published ARM64 support.
+# Start only when direct requests actually require it.
+services:
+  bot:
+    environment:
+      SOLVER_URL: http://solver:8191
+      AKIPY_SOLVER_URL: http://solver:8191
+  solver:
+    image: ghcr.io/flaresolverr/flaresolverr:v3.4.6
+    restart: unless-stopped
+    environment:
+      LOG_LEVEL: warn
+    cpus: ${SOLVER_CPUS:-1.0}
+    mem_limit: ${SOLVER_MEMORY:-1536m}
+    shm_size: 256m
+    pids_limit: 256
+    logging:
+      driver: json-file
+      options:
+        max-size: 5m
+        max-file: '2'
