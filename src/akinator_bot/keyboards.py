@@ -79,34 +79,34 @@ def childmode_keyboard(enabled: bool) -> InlineKeyboardMarkup:
     )
 
 
-def play_keyboard(session_id: str) -> InlineKeyboardMarkup:
+def play_keyboard(session_id: str, revision: int = 0) -> InlineKeyboardMarkup:
     s = session_id
     return InlineKeyboardMarkup(
         [
             [
-                InlineKeyboardButton("Yes", callback_data=f"a:{s}:0"),
-                InlineKeyboardButton("No", callback_data=f"a:{s}:1"),
-                InlineKeyboardButton("Probably", callback_data=f"a:{s}:3"),
+                InlineKeyboardButton("Yes", callback_data=f"a:{s}:{revision}:0"),
+                InlineKeyboardButton("No", callback_data=f"a:{s}:{revision}:1"),
+                InlineKeyboardButton("Probably", callback_data=f"a:{s}:{revision}:3"),
             ],
             [
-                InlineKeyboardButton("I don't know", callback_data=f"a:{s}:2"),
-                InlineKeyboardButton("Probably not", callback_data=f"a:{s}:4"),
+                InlineKeyboardButton("I don't know", callback_data=f"a:{s}:{revision}:2"),
+                InlineKeyboardButton("Probably not", callback_data=f"a:{s}:{revision}:4"),
             ],
             [
-                InlineKeyboardButton("Back", callback_data=f"a:{s}:b"),
+                InlineKeyboardButton("Back", callback_data=f"a:{s}:{revision}:b"),
                 InlineKeyboardButton("Cancel", callback_data=f"x:{s}"),
             ],
         ]
     )
 
 
-def win_keyboard(session_id: str) -> InlineKeyboardMarkup:
+def win_keyboard(session_id: str, revision: int = 0) -> InlineKeyboardMarkup:
     s = session_id
     return InlineKeyboardMarkup(
         [
             [
-                InlineKeyboardButton("Yes", callback_data=f"w:{s}:y"),
-                InlineKeyboardButton("No", callback_data=f"w:{s}:n"),
+                InlineKeyboardButton("Yes", callback_data=f"w:{s}:{revision}:y"),
+                InlineKeyboardButton("No", callback_data=f"w:{s}:{revision}:n"),
             ]
         ]
     )
@@ -148,19 +148,13 @@ def leaderboard_keyboard(active: str | None = None) -> InlineKeyboardMarkup:
     )
 
 
-def leaderboard_page_keyboard(
-    category: str, page: int, has_more: bool
-) -> InlineKeyboardMarkup:
+def leaderboard_page_keyboard(category: str, page: int, has_more: bool) -> InlineKeyboardMarkup:
     base = leaderboard_keyboard(active=category)
     nav: list[InlineKeyboardButton] = []
     if page > 0:
-        nav.append(
-            InlineKeyboardButton("Prev", callback_data=f"lead:{category}:{page - 1}")
-        )
+        nav.append(InlineKeyboardButton("Prev", callback_data=f"lead:{category}:{page - 1}"))
     if has_more:
-        nav.append(
-            InlineKeyboardButton("Next", callback_data=f"lead:{category}:{page + 1}")
-        )
+        nav.append(InlineKeyboardButton("Next", callback_data=f"lead:{category}:{page + 1}"))
     rows = list(base.inline_keyboard)
     if nav:
         rows.append(nav)

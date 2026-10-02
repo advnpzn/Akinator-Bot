@@ -1,0 +1,44 @@
+name: checks
+on: [push, pull_request]
+permissions:
+  contents: read
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          version: '0.12.22'
+      - run: uv sync --frozen --python 3.12
+      - run: uv run --frozen ruff check .
+      - run: uv run --frozen ruff format --check .
+      - run: uv run --frozen pytest
+      - run: BOT_ENV_FILE=.env.example docker compose config --quiet
+  image:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: linux/amd64,linux/arm64
+          push: false
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: linux/amd64
+          load: true
+          tags: akinator-bot:test
+      - name: Test the non-root image under Pi resource ceilings
+        run: >-
+          docker run --rm --read-only
+          --tmpfs /tmp:size=64m
+          --tmpfs /app/data:uid=1000,gid=1000,mode=0700
+          --cpus 1 --memory 512m --pids-limit 64
+          --cap-drop ALL --security-opt no-new-privileges:true
+          --mount "type=bind,src=$GITHUB_WORKSPACE/tests,dst=/app/tests,readonly"
+          akinator-bot:test python -m pytest /app/tests -q -p no:cacheprovider
+          -o asyncio_mode=auto -o asyncio_default_fixture_loop_scope=function

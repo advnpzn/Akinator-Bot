@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
+from contextlib import asynccontextmanager
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import UTC, datetime
+from functools import wraps
 from pathlib import Path
 from typing import Any, Literal
 
@@ -59,11 +62,27 @@ CREATE TABLE IF NOT EXISTS events (
 
 CREATE INDEX IF NOT EXISTS idx_events_ts ON events(ts DESC);
 CREATE INDEX IF NOT EXISTS idx_events_type ON events(event_type, ts DESC);
+CREATE INDEX IF NOT EXISTS idx_users_recent ON users(last_seen_at DESC, user_id);
+CREATE TABLE IF NOT EXISTS games (
+    session_id TEXT PRIMARY KEY,
+    user_id INTEGER NOT NULL REFERENCES users(user_id),
+    status TEXT NOT NULL,
+    revision INTEGER NOT NULL DEFAULT 0,
+    questions INTEGER NOT NULL DEFAULT 0,
+    started_at TEXT NOT NULL,
+    finished_at TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_games_status ON games(status);
+CREATE INDEX IF NOT EXISTS idx_games_finished ON games(finished_at);
+CREATE TABLE IF NOT EXISTS inline_invitations (
+    inline_message_id TEXT PRIMARY KEY,
+    created_at TEXT NOT NULL
+);
 """
 
 
 def _utc_now() -> str:
-    return datetime.now(timezone.utc).replace(microsecond=0).isoformat()
+    return datetime.now(UTC).replace(microsecond=0).isoformat()
 
 
 @dataclass(slots=True)
@@ -131,18 +150,64 @@ class LeaderboardEntry:
     win_rate: float
 
 
+def serialized(method):
+    @wraps(method)
+    async def wrapped(self, *args, **kwargs):
+        async with self.guard():
+            return await method(self, *args, **kwargs)
+
+    return wrapped
+
+
 class Database:
     def __init__(self, path: Path) -> None:
         self.path = path
         self._db: aiosqlite.Connection | None = None
+        self._lock = asyncio.Lock()
+        self._owner: asyncio.Task | None = None
 
+    @asynccontextmanager
+    async def guard(self):
+        task = asyncio.current_task()
+        if self._owner is task:
+            yield
+            return
+        async with self._lock:
+            self._owner = task
+            try:
+                yield
+            finally:
+                self._owner = None
+
+    @asynccontextmanager
+    async def transaction(self):
+        async with self.guard():
+            await self.conn.execute("BEGIN IMMEDIATE")
+            try:
+                yield
+                await self.conn.commit()
+            except BaseException:
+                await self.conn.rollback()
+                raise
+
+    @serialized
     async def connect(self) -> None:
+        if self._db is not None:
+            return
         self.path.parent.mkdir(parents=True, exist_ok=True)
-        self._db = await aiosqlite.connect(self.path)
-        self._db.row_factory = aiosqlite.Row
-        await self._db.executescript(SCHEMA)
-        await self._migrate()
-        await self._db.commit()
+        try:
+            self._db = await aiosqlite.connect(self.path)
+            self._db.row_factory = aiosqlite.Row
+            await self._db.executescript(SCHEMA)
+            await self._migrate()
+            await self._db.execute(
+                "UPDATE games SET status='expired', finished_at=? WHERE finished_at IS NULL",
+                (_utc_now(),),
+            )
+            await self._db.commit()
+        except BaseException:
+            await self.close()
+            raise
         logger.info("SQLite ready at %s", self.path)
 
     async def _migrate(self) -> None:
@@ -156,6 +221,7 @@ class Database:
             )
             logger.info("migrated users.aki_theme")
 
+    @serialized
     async def close(self) -> None:
         if self._db is not None:
             await self._db.close()
@@ -167,6 +233,7 @@ class Database:
             raise RuntimeError("Database is not connected")
         return self._db
 
+    @serialized
     async def upsert_user(
         self,
         user_id: int,
@@ -177,6 +244,7 @@ class Database:
         language_code: str | None = None,
         default_aki_lang: str = "en",
         default_child_mode: bool = True,
+        default_theme: str = "c",
     ) -> UserRow:
         now = _utc_now()
         await self.conn.execute(
@@ -184,7 +252,7 @@ class Database:
             INSERT INTO users (
                 user_id, first_name, last_name, username, language_code,
                 aki_lang, aki_theme, child_mode, first_seen_at, last_seen_at
-            ) VALUES (?, ?, ?, ?, ?, ?, 'c', ?, ?, ?)
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(user_id) DO UPDATE SET
                 first_name = excluded.first_name,
                 last_name = excluded.last_name,
@@ -199,6 +267,7 @@ class Database:
                 username,
                 language_code,
                 default_aki_lang,
+                default_theme,
                 1 if default_child_mode else 0,
                 now,
                 now,
@@ -209,13 +278,13 @@ class Database:
         assert user is not None
         return user
 
+    @serialized
     async def get_user(self, user_id: int) -> UserRow | None:
-        async with self.conn.execute(
-            "SELECT * FROM users WHERE user_id = ?", (user_id,)
-        ) as cur:
+        async with self.conn.execute("SELECT * FROM users WHERE user_id = ?", (user_id,)) as cur:
             row = await cur.fetchone()
         return UserRow.from_row(row) if row else None
 
+    @serialized
     async def ensure_user(
         self,
         user_id: int,
@@ -226,6 +295,7 @@ class Database:
         language_code: str | None = None,
         default_aki_lang: str = "en",
         default_child_mode: bool = True,
+        default_theme: str = "c",
     ) -> UserRow:
         existing = await self.get_user(user_id)
         if existing is None:
@@ -237,8 +307,16 @@ class Database:
                 language_code=language_code,
                 default_aki_lang=default_aki_lang,
                 default_child_mode=default_child_mode,
+                default_theme=default_theme,
             )
-        # light profile refresh
+        if (existing.first_name, existing.last_name, existing.username, existing.language_code) == (
+            first_name,
+            last_name,
+            username,
+            language_code or existing.language_code,
+        ) and existing.last_seen_at[:10] == _utc_now()[:10]:
+            return existing
+        # Refresh changed profiles or once per day, rather than on every command.
         await self.conn.execute(
             """
             UPDATE users SET
@@ -254,6 +332,7 @@ class Database:
         assert user is not None
         return user
 
+    @serialized
     async def set_language(self, user_id: int, lang: str) -> None:
         await self.conn.execute(
             "UPDATE users SET aki_lang = ?, last_seen_at = ? WHERE user_id = ?",
@@ -261,6 +340,7 @@ class Database:
         )
         await self.conn.commit()
 
+    @serialized
     async def set_theme(self, user_id: int, theme: str) -> None:
         await self.conn.execute(
             "UPDATE users SET aki_theme = ?, last_seen_at = ? WHERE user_id = ?",
@@ -268,6 +348,7 @@ class Database:
         )
         await self.conn.commit()
 
+    @serialized
     async def set_child_mode(self, user_id: int, enabled: bool) -> None:
         await self.conn.execute(
             "UPDATE users SET child_mode = ?, last_seen_at = ? WHERE user_id = ?",
@@ -275,77 +356,19 @@ class Database:
         )
         await self.conn.commit()
 
-    async def bump_total_guess(self, user_id: int, delta: int = 1) -> None:
-        await self.conn.execute(
-            """
-            UPDATE users SET
-                total_guess = total_guess + ?,
-                unfinished_guess = unfinished_guess + ?,
-                last_seen_at = ?
-            WHERE user_id = ?
-            """,
-            (delta, delta, _utc_now(), user_id),
-        )
-        await self.conn.commit()
-
-    async def bump_questions(self, user_id: int, delta: int = 1) -> None:
-        await self.conn.execute(
-            """
-            UPDATE users SET
-                total_questions = MAX(0, total_questions + ?),
-                last_seen_at = ?
-            WHERE user_id = ?
-            """,
-            (delta, _utc_now(), user_id),
-        )
-        await self.conn.commit()
-
-    async def record_correct(self, user_id: int) -> None:
-        await self.conn.execute(
-            """
-            UPDATE users SET
-                correct_guess = correct_guess + 1,
-                unfinished_guess = MAX(0, unfinished_guess - 1),
-                last_seen_at = ?
-            WHERE user_id = ?
-            """,
-            (_utc_now(), user_id),
-        )
-        await self.conn.commit()
-
-    async def record_wrong(self, user_id: int) -> None:
-        await self.conn.execute(
-            """
-            UPDATE users SET
-                wrong_guess = wrong_guess + 1,
-                unfinished_guess = MAX(0, unfinished_guess - 1),
-                last_seen_at = ?
-            WHERE user_id = ?
-            """,
-            (_utc_now(), user_id),
-        )
-        await self.conn.commit()
-
-    async def record_abandon(self, user_id: int) -> None:
-        """Mark an unfinished game as abandoned (already counted in unfinished)."""
-        await self.conn.execute(
-            "UPDATE users SET last_seen_at = ? WHERE user_id = ?",
-            (_utc_now(), user_id),
-        )
-        await self.conn.commit()
-
+    @serialized
     async def total_users(self) -> int:
         async with self.conn.execute("SELECT COUNT(*) AS c FROM users") as cur:
             row = await cur.fetchone()
         return int(row["c"]) if row else 0
 
+    @serialized
     async def total_games(self) -> int:
-        async with self.conn.execute(
-            "SELECT COALESCE(SUM(total_guess), 0) AS c FROM users"
-        ) as cur:
+        async with self.conn.execute("SELECT COALESCE(SUM(total_guess), 0) AS c FROM users") as cur:
             row = await cur.fetchone()
         return int(row["c"]) if row else 0
 
+    @serialized
     async def log_event(
         self,
         event_type: str,
@@ -358,6 +381,7 @@ class Database:
         )
         await self.conn.commit()
 
+    @serialized
     async def recent_events(self, limit: int = 20) -> list[dict[str, Any]]:
         async with self.conn.execute(
             """
@@ -372,11 +396,12 @@ class Database:
             rows = await cur.fetchall()
         return [dict(r) for r in rows]
 
+    @serialized
     async def list_users(self, offset: int = 0, limit: int = 10) -> list[UserRow]:
         async with self.conn.execute(
             """
             SELECT * FROM users
-            ORDER BY last_seen_at DESC
+            ORDER BY last_seen_at DESC, user_id
             LIMIT ? OFFSET ?
             """,
             (limit, offset),
@@ -384,6 +409,7 @@ class Database:
             rows = await cur.fetchall()
         return [UserRow.from_row(r) for r in rows]
 
+    @serialized
     async def leaderboard(
         self,
         category: LeadColumn,
@@ -404,7 +430,7 @@ class Database:
                    END AS score
             FROM users
             WHERE (correct_guess + wrong_guess) >= ?
-            ORDER BY score DESC, correct_guess DESC, total_guess DESC
+            ORDER BY score DESC, correct_guess DESC, total_guess DESC, user_id
             LIMIT ? OFFSET ?
             """
             params: tuple[Any, ...] = (min_games, limit, offset)
@@ -422,7 +448,7 @@ class Database:
                    {col} AS score
             FROM users
             WHERE {col} > 0
-            ORDER BY {col} DESC, correct_guess DESC
+            ORDER BY {col} DESC, correct_guess DESC, user_id
             LIMIT ? OFFSET ?
             """
             params = (limit, offset)
@@ -436,9 +462,7 @@ class Database:
             if uname:
                 display = f"@{uname}"
             else:
-                name = " ".join(
-                    p for p in (row["first_name"], row["last_name"]) if p
-                )
+                name = " ".join(p for p in (row["first_name"], row["last_name"]) if p)
                 display = name or str(row["user_id"])
             correct = row["correct_guess"] or 0
             wrong = row["wrong_guess"] or 0
@@ -456,3 +480,109 @@ class Database:
                 )
             )
         return entries
+
+    @serialized
+    async def start_game(self, sid: str, user_id: int) -> bool:
+        async with self.transaction():
+            cursor = await self.conn.execute(
+                "INSERT INTO games(session_id,user_id,status,started_at) "
+                "VALUES(?,?,'playing',?) ON CONFLICT(session_id) DO NOTHING",
+                (sid, user_id, _utc_now()),
+            )
+            if not cursor.rowcount:
+                return False
+            await self.conn.execute(
+                "UPDATE users SET total_guess=total_guess+1, "
+                "unfinished_guess=unfinished_guess+1 WHERE user_id=?",
+                (user_id,),
+            )
+            await self.conn.execute(
+                "INSERT INTO events(ts,event_type,user_id,detail) VALUES(?,'game_start',?,?)",
+                (_utc_now(), user_id, sid),
+            )
+            return True
+
+    @serialized
+    async def record_action(
+        self, sid: str, revision: int, delta: int, status: str, outcome: str | None = None
+    ) -> bool:
+        async with self.transaction():
+            cursor = await self.conn.execute(
+                "UPDATE games SET revision=revision+1, questions=MAX(0,questions+?), status=? "
+                "WHERE session_id=? AND revision=? AND finished_at IS NULL",
+                (delta, status, sid, revision),
+            )
+            if not cursor.rowcount:
+                return False
+            await self.conn.execute(
+                "UPDATE users SET total_questions=MAX(0,total_questions+?) "
+                "WHERE user_id=(SELECT user_id FROM games WHERE session_id=?)",
+                (delta, sid),
+            )
+            if outcome is not None:
+                await self._finish_game(sid, outcome)
+            return True
+
+    @serialized
+    async def finish_game(self, sid: str, outcome: str) -> bool:
+        async with self.transaction():
+            return await self._finish_game(sid, outcome)
+
+    async def _finish_game(self, sid: str, outcome: str) -> bool:
+        if outcome not in {
+            "correct",
+            "wrong",
+            "cancelled",
+            "expired",
+            "failed",
+            "blocked",
+            "soundlike",
+        }:
+            raise ValueError("Invalid game outcome")
+        cursor = await self.conn.execute(
+            "UPDATE games SET status=?, finished_at=? WHERE session_id=? AND finished_at IS NULL",
+            (outcome, _utc_now(), sid),
+        )
+        if not cursor.rowcount:
+            return False
+        if outcome in {"correct", "wrong"}:
+            column = "correct_guess" if outcome == "correct" else "wrong_guess"
+            await self.conn.execute(
+                f"UPDATE users SET {column}={column}+1, "
+                "unfinished_guess=MAX(0,unfinished_guess-1) "
+                "WHERE user_id=(SELECT user_id FROM games WHERE session_id=?)",
+                (sid,),
+            )
+        await self.conn.execute(
+            "INSERT INTO events(ts,event_type,user_id,detail) "
+            "SELECT ?,?,user_id,session_id FROM games WHERE session_id=?",
+            (_utc_now(), "game_" + outcome, sid),
+        )
+        return True
+
+    @serialized
+    async def prune(self, days: int) -> None:
+        async with self.transaction():
+            await self.conn.execute(
+                "DELETE FROM events WHERE ts < strftime('%Y-%m-%dT%H:%M:%S','now',?)",
+                (f"-{days} days",),
+            )
+            await self.conn.execute(
+                "DELETE FROM games WHERE finished_at < strftime('%Y-%m-%dT%H:%M:%S','now',?)",
+                (f"-{days} days",),
+            )
+
+    @serialized
+    async def claim_inline(self, inline_message_id: str) -> bool:
+        async with self.transaction():
+            cursor = await self.conn.execute(
+                "INSERT INTO inline_invitations VALUES(?,?) "
+                "ON CONFLICT(inline_message_id) DO NOTHING",
+                (inline_message_id, _utc_now()),
+            )
+            return bool(cursor.rowcount)
+
+    @serialized
+    async def ping(self) -> None:
+        async with self.conn.execute("SELECT 1") as cursor:
+            await cursor.fetchone()

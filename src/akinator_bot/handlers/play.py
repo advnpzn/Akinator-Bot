@@ -1,240 +1,52 @@
-"""Game play flow: /play, answers, win confirm, cancel."""
+"""Telegram transport for the shared game controller."""
 
 from __future__ import annotations
 
-import logging
-
-from telegram import InputFile, InputMediaPhoto, LinkPreviewOptions, Message, Update
-from telegram.constants import ParseMode
-from telegram.error import BadRequest
+from telegram import Update
 from telegram.ext import Application, CallbackQueryHandler, CommandHandler, ContextTypes
 
-from akinator_bot import strings
-from akinator_bot.handlers.common import db, ensure_user, games, sessions
-from akinator_bot.keyboards import play_again_keyboard, play_keyboard, win_keyboard
-from akinator_bot.sessions import GamePhase, GameSession
+from akinator_bot.handlers.common import db, ensure_user, sessions
+from akinator_bot.sessions import CapacityError, GamePhase
 from akinator_bot.themes import normalize_theme
 
-logger = logging.getLogger(__name__)
 
-
-def _file_media(path, caption: str | None = None) -> InputMediaPhoto:
-    # PTB/httpx need a real file handle or path string, not pathlib.Path
-    return InputMediaPhoto(
-        media=InputFile(path.open("rb"), filename=path.name),
-        caption=caption,
-        parse_mode=ParseMode.HTML if caption else None,
-    )
-
-
-def _progress_caption(question: str | None, step: str | int | None, progression: str | None) -> str:
-    q = question or "..."
-    try:
-        prog = float(progression or 0)
-    except (TypeError, ValueError):
-        prog = 0.0
-    step_n = int(step or 0) + 1
-    bar_w = 10
-    filled = max(0, min(bar_w, round(prog / 100 * bar_w)))
-    bar = "[" + "#" * filled + "-" * (bar_w - filled) + "]"
-    return f"<b>Q{step_n}</b>  {bar} {prog:.0f}%\n\n{q}"
-
-
-async def _edit_inline_text(
-    bot,
-    session: GameSession,
-    text: str,
-    reply_markup=None,
-) -> None:
-    """Edit an inline message as pure text (no images, no link previews)."""
-    if not session.inline_message_id:
-        return
-    try:
-        await bot.edit_message_text(
-            text=text,
-            inline_message_id=session.inline_message_id,
-            parse_mode=ParseMode.HTML,
-            reply_markup=reply_markup,
-            link_preview_options=LinkPreviewOptions(is_disabled=True),
-        )
-    except BadRequest as e:
-        if "not modified" in str(e).lower():
-            return
-        logger.warning("edit_inline_text failed: %s", e)
-
-
-async def _edit_caption(
-    bot,
-    session: GameSession,
-    caption: str,
-    reply_markup=None,
-) -> None:
-    """Update DM photo caption, or inline text."""
-    if session.inline_message_id:
-        await _edit_inline_text(bot, session, caption, reply_markup=reply_markup)
-        return
-    try:
-        if session.chat_id and session.message_id:
-            await bot.edit_message_caption(
-                chat_id=session.chat_id,
-                message_id=session.message_id,
-                caption=caption,
-                parse_mode=ParseMode.HTML,
-                reply_markup=reply_markup,
-            )
-    except BadRequest as e:
-        if "not modified" in str(e).lower():
-            return
-        logger.warning("edit_caption failed: %s", e)
-
-
-async def _edit_media(
-    *,
-    bot,
-    session: GameSession,
-    media: InputMediaPhoto,
-    reply_markup=None,
-    fallback_media: InputMediaPhoto | None = None,
-) -> None:
-    """Update the game message.
-
-    - Inline: text only (never photos).
-    - Direct /play: real photo edits (faces + final answer images).
-
-    If the first media edit fails (e.g. Telegram cannot fetch a remote URL),
-    optionally retry with fallback_media before giving up to caption-only.
-    """
-    if session.inline_message_id:
-        await _edit_inline_text(
-            bot,
-            session,
-            media.caption or "",
-            reply_markup=reply_markup,
-        )
-        return
-
-    if not (session.chat_id and session.message_id):
-        return
-
-    for attempt, m in enumerate((media, fallback_media)):
-        if m is None:
-            continue
-        try:
-            await bot.edit_message_media(
-                media=m,
-                chat_id=session.chat_id,
-                message_id=session.message_id,
-                reply_markup=reply_markup,
-            )
-            return
-        except BadRequest as e:
-            if "not modified" in str(e).lower():
-                return
-            logger.warning("edit_media failed (attempt %s): %s", attempt + 1, e)
-
-    # Last resort: keep current image, at least update text
-    await _edit_caption(
-        bot,
-        session,
-        media.caption or "",
-        reply_markup=reply_markup,
-    )
+def controller(context):
+    return context.application.bot_data["controller"]
 
 
 async def start_game_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    if not update.message or not update.effective_user:
+    if not update.effective_chat or not update.effective_user:
         return
-    user_row = await ensure_user(update, context)
-    svc = games(context)
-    mgr = sessions(context)
-
-    loading = svc.loading_photo()
-    msg = await update.message.reply_photo(
-        photo=InputFile(loading.open("rb"), filename=loading.name),
-        caption=strings.LOADING,
-    )
-    session = await mgr.create(
-        update.effective_user.id,
-        language=user_row.aki_lang,
-        theme=normalize_theme(user_row.aki_theme, user_row.aki_lang),
-        child_mode=user_row.child_mode,
-        chat_id=msg.chat_id,
-        message_id=msg.message_id,
-        phase=GamePhase.PLAYING,
-    )
-    await _bootstrap_game(context, session, msg=msg)
-
-
-async def start_game_from_callback(
-    update: Update, context: ContextTypes.DEFAULT_TYPE
-) -> None:
-    """Start from menu button - send a new photo message."""
-    query = update.callback_query
-    if not query or not update.effective_user:
-        return
-    # Prefer chat message
-    chat = update.effective_chat
-    if chat is None:
-        await query.answer("Open a private chat with me to play.", show_alert=True)
-        return
-    user_row = await ensure_user(update, context)
-    svc = games(context)
-    mgr = sessions(context)
-    loading = svc.loading_photo()
-    msg = await context.bot.send_photo(
-        chat_id=chat.id,
-        photo=InputFile(loading.open("rb"), filename=loading.name),
-        caption=strings.LOADING,
-    )
-    session = await mgr.create(
-        update.effective_user.id,
-        language=user_row.aki_lang,
-        theme=normalize_theme(user_row.aki_theme, user_row.aki_lang),
-        child_mode=user_row.child_mode,
-        chat_id=msg.chat_id,
-        message_id=msg.message_id,
-        phase=GamePhase.PLAYING,
-    )
-    await _bootstrap_game(context, session, msg=msg)
-
-
-async def _bootstrap_game(
-    context: ContextTypes.DEFAULT_TYPE,
-    session: GameSession,
-    *,
-    msg: Message | None = None,
-) -> None:
-    svc = games(context)
-    database = db(context)
-    async with session.lock:
-        try:
-            aki = await svc.start_akinator(session)
-        except Exception as e:
-            err = svc.map_error(e)
-            caption = f"Error: {err}"
-            if msg:
-                try:
-                    await msg.edit_caption(caption=caption)
-                except BadRequest:
-                    pass
-            else:
-                await _edit_caption(context.bot, session, caption)
-            await sessions(context).remove(session.session_id)
-            return
-
-        await database.bump_total_guess(session.user_id, 1)
-        await database.log_event("game_start", session.user_id, session.session_id)
-
-        caption = _progress_caption(aki.question, aki.step, aki.progression)
-        media = await svc.question_media(
-            aki, caption, session_id=session.session_id
+    user = await ensure_user(update, context)
+    ctl = controller(context)
+    # Retire expired entries before deciding admission; never evict live games.
+    await ctl.cleanup()
+    try:
+        session = await sessions(context).create(
+            user.user_id,
+            language=user.aki_lang,
+            child_mode=user.child_mode,
+            theme=normalize_theme(user.aki_theme, user.aki_lang),
+            chat_id=update.effective_chat.id,
+            phase=GamePhase.STARTING,
         )
-        await _edit_media(
-            bot=context.bot,
-            session=session,
-            media=media,
-            reply_markup=play_keyboard(session.session_id),
-        )
+    except CapacityError as exc:
+        await context.bot.send_message(chat_id=update.effective_chat.id, text=str(exc))
+        return
+    try:
+        message = await ctl.renderer.send_loading(context.bot, update.effective_chat.id)
+        session.message_id = message.message_id
+        await ctl.start(context.bot, session)
+    except BaseException:
+        # Sending/rendering may fail even when starting the remote game worked.
+        # Retire it rather than leave an unreachable live client behind.
+        await sessions(context).remove(session.session_id)
+        await db(context).finish_game(session.session_id, "failed")
+        raise
+
+
+async def start_game_from_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    await start_game_message(update, context)
 
 
 async def cmd_play(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -242,288 +54,76 @@ async def cmd_play(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
 
 async def cmd_cancel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    if not update.message or not update.effective_user:
+    if not update.effective_user or not update.message:
         return
-    mgr = sessions(context)
-    session = mgr.get_user_session(update.effective_user.id)
-    if not session:
+    session = sessions(context).get_user_session(update.effective_user.id)
+    if session is None:
         await update.message.reply_text("No active game.")
         return
-    await mgr.remove(session.session_id)
-    await db(context).log_event("game_cancel", update.effective_user.id, session.session_id)
-    await update.message.reply_text(strings.CANCEL_CAPTION)
+    await controller(context).cancel(context.bot, session)
+    await update.message.reply_text("Game cancelled.")
 
 
-async def answer_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+def owned_session(update: Update, context):
     query = update.callback_query
     if not query or not query.data or not update.effective_user:
-        return
-
-    # a:{sid}:{choice}
+        return None
     parts = query.data.split(":")
-    if len(parts) != 3:
-        await query.answer()
-        return
-    _, sid, choice = parts
-    mgr = sessions(context)
-    session = mgr.get(sid)
-    if session is None:
-        await query.answer(strings.GAME_EXPIRED, show_alert=True)
-        return
-    if session.user_id != update.effective_user.id:
-        bot = context.bot.username or "bot"
-        await query.answer(strings.NOT_YOUR_GAME.format(bot=bot), show_alert=True)
-        return
-    if session.phase not in (GamePhase.PLAYING,):
-        await query.answer("Wait for the next prompt...")
-        return
-
-    if session.lock.locked():
-        await query.answer(strings.GAME_BUSY)
-        return
-
-    async with session.lock:
-        # re-check after lock
-        session = mgr.get(sid)
-        if session is None or session.aki is None:
-            await query.answer(strings.GAME_EXPIRED, show_alert=True)
-            return
-
-        svc = games(context)
-        database = db(context)
-
-        if choice != "b":
-            await database.bump_questions(session.user_id, 1)
-            session.questions += 1
-        else:
-            # back: undo last question count if any
-            if session.questions > 0:
-                await database.bump_questions(session.user_id, -1)
-                session.questions -= 1
-
-        try:
-            aki = await svc.answer(session, choice)
-        except Exception as e:
-            mapped = svc.map_error(e)
-            if mapped == "first":
-                await query.answer(strings.FIRST_QUESTION, show_alert=True)
-                return
-            await query.answer(mapped, show_alert=True)
-            return
-
-        await query.answer()
-
-        if aki.win:
-            session.phase = GamePhase.PROPOSITION
-            caption = strings.WIN_CAPTION.format(
-                name=aki.name_proposition or "???",
-                desc=aki.description_proposition or "",
-            )
-            media = await svc.proposition_media(aki, caption)
-            fallback = None
-            if (aki.photo or "").strip():
-                fallback = await svc.character_media_reupload(
-                    aki.photo, caption, fallback=svc.win_photo()
-                )
-            await _edit_media(
-                bot=context.bot,
-                session=session,
-                media=media,
-                reply_markup=win_keyboard(session.session_id),
-                fallback_media=fallback,
-            )
-        else:
-            caption = _progress_caption(aki.question, aki.step, aki.progression)
-            media = await svc.question_media(
-                aki, caption, session_id=session.session_id
-            )
-            await _edit_media(
-                bot=context.bot,
-                session=session,
-                media=media,
-                reply_markup=play_keyboard(session.session_id),
-            )
+    session = sessions(context).get(parts[1]) if len(parts) > 1 else None
+    if session is None or session.user_id != update.effective_user.id:
+        return None
+    # A copied button must never redirect a game to another message.
+    if session.is_inline:
+        if query.inline_message_id != session.inline_message_id:
+            return None
+    elif not query.message or (query.message.chat_id, query.message.message_id) != (
+        session.chat_id,
+        session.message_id,
+    ):
+        return None
+    return session
 
 
-async def win_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+async def action_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     query = update.callback_query
-    if not query or not query.data or not update.effective_user:
+    if not query or not query.data:
         return
     parts = query.data.split(":")
-    if len(parts) != 3:
-        await query.answer()
+    session = owned_session(update, context)
+    if session is None or len(parts) != 4:
+        await query.answer("This game expired or belongs to another player.", show_alert=True)
         return
-    _, sid, ans = parts
-    mgr = sessions(context)
-    session = mgr.get(sid)
-    if session is None:
-        await query.answer(strings.GAME_EXPIRED, show_alert=True)
+    try:
+        revision = int(parts[2])
+    except ValueError:
+        await query.answer("Invalid button.", show_alert=True)
         return
-    if session.user_id != update.effective_user.id:
-        bot = context.bot.username or "bot"
-        await query.answer(
-            strings.NOT_YOUR_GAME.format(bot=bot),
-            show_alert=True,
-        )
+    allowed = {"y", "n"} if parts[0] == "w" else {"0", "1", "2", "3", "4", "b"}
+    if parts[3] not in allowed:
+        await query.answer("Invalid button.", show_alert=True)
         return
-    if session.phase != GamePhase.PROPOSITION:
-        await query.answer()
-        return
-    if session.lock.locked():
-        await query.answer(strings.GAME_BUSY)
-        return
-
-    async with session.lock:
-        session = mgr.get(sid)
-        if session is None:
-            await query.answer(strings.GAME_EXPIRED, show_alert=True)
-            return
-        svc = games(context)
-        database = db(context)
-        yes = ans == "y"
-
-        # Capture proposition before API calls may clear it
-        aki = session.aki
-        guess_name = (aki.name_proposition if aki else None) or "???"
-        guess_desc = (aki.description_proposition if aki else None) or ""
-        guess_photo = (aki.photo if aki else None) or None
-        desc_line = f"<i>{guess_desc}</i>\n\n" if guess_desc else "\n"
-
-        try:
-            await svc.confirm_win(session, yes=yes)
-        except Exception as e:
-            logger.warning("confirm_win: %s", e)
-
-        aki = session.aki
-        # Continue game after wrong exclude
-        if not yes and aki is not None and not aki.win and not getattr(aki, "finished", False):
-            session.phase = GamePhase.PLAYING
-            await query.answer("Hmm, let me try again...")
-            caption = _progress_caption(aki.question, aki.step, aki.progression)
-            media = await svc.question_media(
-                aki, caption, session_id=session.session_id
-            )
-            await _edit_media(
-                bot=context.bot,
-                session=session,
-                media=media,
-                reply_markup=play_keyboard(session.session_id),
-            )
-            return
-
-        await query.answer()
-        if yes:
-            await database.record_correct(session.user_id)
-            await database.log_event("game_win", session.user_id, session.session_id)
-            caption = strings.CORRECT_CAPTION.format(
-                name=guess_name,
-                desc=desc_line,
-            )
-            if session.is_inline:
-                await _edit_inline_text(
-                    context.bot,
-                    session,
-                    caption,
-                    reply_markup=None,
-                )
-            else:
-                media = await svc.character_media(
-                    guess_photo, caption, fallback=svc.win_photo()
-                )
-                fallback = await svc.character_media_reupload(
-                    guess_photo, caption, fallback=svc.win_photo()
-                )
-                await _edit_media(
-                    bot=context.bot,
-                    session=session,
-                    media=media,
-                    reply_markup=play_again_keyboard(),
-                    fallback_media=fallback,
-                )
-        else:
-            await database.record_wrong(session.user_id)
-            await database.log_event("game_lose", session.user_id, session.session_id)
-            caption = strings.WRONG_CAPTION.format(
-                name=guess_name,
-                desc=desc_line,
-            )
-            if session.is_inline:
-                await _edit_inline_text(
-                    context.bot,
-                    session,
-                    caption,
-                    reply_markup=None,
-                )
-            else:
-                media = await svc.character_media(
-                    guess_photo, caption, fallback=svc.defeat_photo()
-                )
-                fallback = await svc.character_media_reupload(
-                    guess_photo, caption, fallback=svc.defeat_photo()
-                )
-                await _edit_media(
-                    bot=context.bot,
-                    session=session,
-                    media=media,
-                    reply_markup=play_again_keyboard(),
-                    fallback_media=fallback,
-                )
-        session.phase = GamePhase.DONE
-        await mgr.remove(session.session_id)
+    # Stop the spinner before upstream calls; subsequent errors appear in the
+    # shared game screen rather than trying to answer an expired callback.
+    await query.answer()
+    await controller(context).action(
+        context.bot, session, revision, parts[3], confirm=parts[0] == "w"
+    )
 
 
 async def cancel_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     query = update.callback_query
-    if not query or not query.data or not update.effective_user:
+    if not query:
         return
-    sid = query.data.split(":", 1)[1]
-    mgr = sessions(context)
-    session = mgr.get(sid)
+    session = owned_session(update, context)
     if session is None:
-        await query.answer(strings.GAME_EXPIRED, show_alert=True)
+        await query.answer("This game expired or belongs to another player.", show_alert=True)
         return
-    if session.user_id != update.effective_user.id:
-        bot = context.bot.username or "bot"
-        await query.answer(
-            strings.NOT_YOUR_GAME.format(bot=bot),
-            show_alert=True,
-        )
-        return
-    await mgr.remove(sid)
-    await db(context).log_event("game_cancel", update.effective_user.id, sid)
-    await query.answer("Cancelled")
-    svc = games(context)
-    photo = svc.defeat_photo()
-    media = (
-        _file_media(photo, strings.CANCEL_CAPTION)
-        if photo.exists()
-        else InputMediaPhoto(
-            media="https://en.akinator.com/assets/img/akitudes_670x1096/deception.png",
-            caption=strings.CANCEL_CAPTION,
-        )
-    )
-    session.inline_message_id = session.inline_message_id  # keep targets
-    # session already removed - use saved targets
-    try:
-        if session.inline_message_id:
-            await context.bot.edit_message_media(
-                media=media,
-                inline_message_id=session.inline_message_id,
-            )
-        elif session.chat_id and session.message_id:
-            await context.bot.edit_message_media(
-                media=media,
-                chat_id=session.chat_id,
-                message_id=session.message_id,
-                reply_markup=play_again_keyboard(),
-            )
-    except BadRequest:
-        pass
+    await query.answer()
+    await controller(context).cancel(context.bot, session)
 
 
 def register(app: Application) -> None:
     app.add_handler(CommandHandler("play", cmd_play))
     app.add_handler(CommandHandler("cancel", cmd_cancel))
-    app.add_handler(CallbackQueryHandler(answer_callback, pattern=r"^a:"))
-    app.add_handler(CallbackQueryHandler(win_callback, pattern=r"^w:"))
+    app.add_handler(CallbackQueryHandler(action_callback, pattern=r"^[aw]:"))
     app.add_handler(CallbackQueryHandler(cancel_callback, pattern=r"^x:"))

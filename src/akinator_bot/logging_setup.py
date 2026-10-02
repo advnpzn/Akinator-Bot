@@ -1,66 +1,49 @@
-"""Structured logging that never leaks secrets."""
+"""Bounded logs with redaction applied after traceback formatting."""
 
 from __future__ import annotations
 
 import logging
 import re
 import sys
-from pathlib import Path
+from logging.handlers import RotatingFileHandler
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from akinator_bot.config import Settings
 
-# Redact Telegram bot tokens and long secrets in log records
-_SECRET_PATTERNS = (
-    re.compile(r"\b\d{8,12}:[A-Za-z0-9_-]{30,}\b"),  # bot tokens
-    re.compile(r"(?i)(bot_token|token|admin_secret|password|api_key)\s*[:=]\s*\S+"),
-)
+_TOKEN = re.compile(r"\d{5,15}:[A-Za-z0-9_-]{20,}")
+_NAMED = re.compile(r"(?i)(bot_token|admin_secret|password|api_key)\s*[:=]\s*\S+")
 
 
-class SecretFilter(logging.Filter):
-    def filter(self, record: logging.LogRecord) -> bool:
-        try:
-            msg = record.getMessage()
-        except Exception:
-            return True
-        redacted = msg
-        for pat in _SECRET_PATTERNS:
-            redacted = pat.sub("[REDACTED]", redacted)
-        if redacted != msg:
-            record.msg = redacted
-            record.args = ()
-        return True
+class SecretFormatter(logging.Formatter):
+    def __init__(self, *args, secrets: tuple[str, ...] = (), **kwargs) -> None:
+        super().__init__(*args, **kwargs)
+        self.secrets = tuple(secret for secret in secrets if secret)
+
+    def format(self, record: logging.LogRecord) -> str:
+        output = super().format(record)
+        for secret in self.secrets:
+            output = output.replace(secret, "[REDACTED]")
+        return _NAMED.sub("[REDACTED]", _TOKEN.sub("[REDACTED]", output))
 
 
 def setup_logging(settings: Settings) -> None:
     root = logging.getLogger()
-    root.handlers.clear()
+    for handler in root.handlers[:]:
+        root.removeHandler(handler)
+        handler.close()
     root.setLevel(settings.log_level)
-
-    fmt = logging.Formatter(
-        fmt="%(asctime)s | %(levelname)-8s | %(name)s | %(message)s",
-        datefmt="%Y-%m-%d %H:%M:%S",
+    formatter = SecretFormatter(
+        "%(asctime)s | %(levelname)s | %(name)s | %(message)s",
+        secrets=(settings.bot_token, settings.admin_secret or ""),
     )
-    secret_filter = SecretFilter()
-
     console = logging.StreamHandler(sys.stdout)
-    console.setFormatter(fmt)
-    console.addFilter(secret_filter)
+    console.setFormatter(formatter)
     root.addHandler(console)
-
     if settings.log_file:
-        path = Path(settings.log_file)
-        path.parent.mkdir(parents=True, exist_ok=True)
-        fh = logging.FileHandler(path, encoding="utf-8")
-        fh.setFormatter(fmt)
-        fh.addFilter(secret_filter)
-        root.addHandler(fh)
-
-    # Quiet noisy libs
-    logging.getLogger("httpx").setLevel(logging.WARNING)
-    logging.getLogger("httpcore").setLevel(logging.WARNING)
-    logging.getLogger("telegram.ext").setLevel(logging.INFO)
-    logging.getLogger("apscheduler").setLevel(logging.WARNING)
-
-    logging.getLogger(__name__).debug("Logging configured (level=%s)", settings.log_level)
+        settings.log_file.parent.mkdir(parents=True, exist_ok=True)
+        handler = RotatingFileHandler(settings.log_file, maxBytes=5_000_000, backupCount=2)
+        handler.setFormatter(formatter)
+        root.addHandler(handler)
+    for name in ("httpx", "httpcore", "telegram.ext"):
+        logging.getLogger(name).setLevel(logging.WARNING)

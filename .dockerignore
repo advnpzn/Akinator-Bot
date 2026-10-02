@@ -1,7 +1,7 @@
 .venv
 .git
 .gitignore
-.env
+.env*
 data
 *.log
 __pycache__

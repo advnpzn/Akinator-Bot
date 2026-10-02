@@ -20,11 +20,8 @@ def _is_admin(update: Update, context: ContextTypes.DEFAULT_TYPE) -> bool:
     user = update.effective_user
     if not user:
         return False
-    cfg = settings(context)
-    if user.id in cfg.admin_ids:
-        return True
-    # One-shot secret unlock stored in user_data for the process lifetime
-    return bool(context.user_data.get("admin_unlocked"))
+    chat = update.effective_chat
+    return bool(chat and chat.type == "private" and user.id in settings(context).admin_ids)
 
 
 def _kb_main() -> InlineKeyboardMarkup:
@@ -44,27 +41,12 @@ def _kb_main() -> InlineKeyboardMarkup:
 
 
 def _kb_back() -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup(
-        [[InlineKeyboardButton("< Admin", callback_data="adm:menu")]]
-    )
+    return InlineKeyboardMarkup([[InlineKeyboardButton("< Admin", callback_data="adm:menu")]])
 
 
 async def cmd_admin(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if not update.message or not update.effective_user:
         return
-    cfg = settings(context)
-    args = context.args or []
-
-    # Secret unlock: /admin <secret>
-    if args and cfg.admin_secret and args[0] == cfg.admin_secret:
-        context.user_data["admin_unlocked"] = True
-        await update.message.reply_text(
-            "Admin unlocked for this session.\n"
-            "Secrets are never written to logs.",
-        )
-        logger.info("admin secret unlock user=%s", update.effective_user.id)
-        args = []
-
     if not _is_admin(update, context):
         await update.message.reply_text("Unknown command. Try /help")
         return
@@ -111,11 +93,17 @@ async def admin_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             )
         return
     if data.startswith("adm:users:"):
-        page = int(data.rsplit(":", 1)[-1])
+        try:
+            page = max(0, min(1000, int(data.rsplit(":", 1)[-1])))
+        except ValueError:
+            return
         await _users(query, context, page)
         return
     if data.startswith("adm:ev:"):
-        page = int(data.rsplit(":", 1)[-1])
+        try:
+            page = max(0, min(1000, int(data.rsplit(":", 1)[-1])))
+        except ValueError:
+            return
         await _events(query, context, page)
         return
 
@@ -135,9 +123,7 @@ async def _overview(query, context: ContextTypes.DEFAULT_TYPE) -> None:
         f"DB: <code>{html.escape(str(cfg.database_path))}</code>"
     )
     if query.message:
-        await query.edit_message_text(
-            text, parse_mode=ParseMode.HTML, reply_markup=_kb_back()
-        )
+        await query.edit_message_text(text, parse_mode=ParseMode.HTML, reply_markup=_kb_back())
 
 
 async def _users(query, context: ContextTypes.DEFAULT_TYPE, page: int) -> None:
@@ -147,10 +133,7 @@ async def _users(query, context: ContextTypes.DEFAULT_TYPE, page: int) -> None:
     lines = ["<b>Recent users</b>\n"]
     for u in rows:
         name = html.escape(u.display_name)
-        lines.append(
-            f"- <code>{u.user_id}</code> {name} - "
-            f"{u.correct_guess}W/{u.total_guess}G\n"
-        )
+        lines.append(f"- <code>{u.user_id}</code> {name} - {u.correct_guess}W/{u.total_guess}G\n")
     if not rows:
         lines.append("<i>empty</i>")
     nav: list[InlineKeyboardButton] = []

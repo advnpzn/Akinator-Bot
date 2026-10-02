@@ -5,7 +5,8 @@ __pycache__/
 .pytest_cache/
 .ruff_cache/
 .mypy_cache/
-.env
+.env*
+!.env.example
 dist/
 build/
 *.log
@@ -15,3 +16,4 @@ data/
 *.db-wal
 *.db-shm
 .DS_Store
+*.db.lock

@@ -77,22 +77,10 @@ NOT_YOUR_GAME = (
 
 LOADING = "Loading..."
 
-WIN_CAPTION = (
-    "I think it's <b>{name}</b>!\n"
-    "<i>{desc}</i>\n\n"
-    "Was I correct?"
-)
+WIN_CAPTION = "I think it's <b>{name}</b>!\n<i>{desc}</i>\n\nWas I correct?"
 
-CORRECT_CAPTION = (
-    "Answer: <b>{name}</b>\n"
-    "{desc}"
-    "Result: <b>correct</b>"
-)
-WRONG_CAPTION = (
-    "Guess: <b>{name}</b>\n"
-    "{desc}"
-    "Result: <b>incorrect</b>"
-)
+CORRECT_CAPTION = "Answer: <b>{name}</b>\n{desc}Result: <b>correct</b>"
+WRONG_CAPTION = "Guess: <b>{name}</b>\n{desc}Result: <b>incorrect</b>"
 CANCEL_CAPTION = "Game cancelled. Use /play when you're ready again."
 
 INLINE_TITLE = "Play Akinator"

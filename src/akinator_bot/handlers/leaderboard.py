@@ -10,7 +10,6 @@ from telegram.constants import ParseMode
 from telegram.ext import Application, CallbackQueryHandler, CommandHandler, ContextTypes
 
 from akinator_bot import strings
-from akinator_bot.db import LeadColumn
 from akinator_bot.handlers.common import db
 from akinator_bot.keyboards import leaderboard_keyboard, leaderboard_page_keyboard
 
@@ -89,7 +88,7 @@ async def lead_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         return
     category = parts[1]
     try:
-        page = int(parts[2])
+        page = max(0, min(1000, int(parts[2])))
     except ValueError:
         page = 0
     if category not in VALID:

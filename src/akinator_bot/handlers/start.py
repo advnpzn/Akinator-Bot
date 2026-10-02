@@ -1,7 +1,8 @@
-""" /start /help and main menu callbacks. """
+"""/start /help and main menu callbacks."""
 
 from __future__ import annotations
 
+import html
 import logging
 
 from telegram import Update
@@ -9,7 +10,7 @@ from telegram.constants import ParseMode
 from telegram.ext import Application, CallbackQueryHandler, CommandHandler, ContextTypes
 
 from akinator_bot import strings
-from akinator_bot.handlers.common import db, display_name, ensure_user, settings
+from akinator_bot.handlers.common import display_name, ensure_user
 from akinator_bot.keyboards import start_keyboard
 
 logger = logging.getLogger(__name__)
@@ -22,7 +23,7 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     bot_user = context.bot.username or "bot"
     await update.message.reply_text(
         strings.START_MSG.format(
-            name=display_name(update.effective_user),
+            name=html.escape(display_name(update.effective_user)),
             bot=bot_user,
         ),
         parse_mode=ParseMode.HTML,

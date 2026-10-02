@@ -1,40 +1,27 @@
 # syntax=docker/dockerfile:1
-# Debian trixie ships OpenSSL 3.5+, which Cloudflare accepts more reliably
-# than bookworm's OpenSSL 3.0 (datacenter TLS fingerprints often get 403).
-FROM ghcr.io/astral-sh/uv:python3.13-trixie-slim AS builder
-
+# Official Python and uv images support both ARM64 (Pi 5) and AMD64.
+FROM python:3.13-slim-trixie AS builder
+COPY --from=ghcr.io/astral-sh/uv:0.12.22 /uv /usr/local/bin/uv
 WORKDIR /app
-
-ENV UV_COMPILE_BYTECODE=1 \
-    UV_LINK_MODE=copy \
-    UV_PYTHON_DOWNLOADS=0
-
-COPY pyproject.toml README.md uv.lock ./
+ENV UV_PYTHON_DOWNLOADS=0 UV_LINK_MODE=copy UV_COMPILE_BYTECODE=1
+COPY pyproject.toml uv.lock README.md ./
 COPY src ./src
-COPY assets ./assets
+# Optional CA bundle for corporate/cloud build proxies; never persisted in the image.
+RUN --mount=type=cache,target=/root/.cache/uv --mount=type=secret,id=build_ca \
+    if [ -f /run/secrets/build_ca ]; then export SSL_CERT_FILE=/run/secrets/build_ca; fi; \
+    uv sync --system-certs --frozen --no-dev --no-editable
 
-RUN --mount=type=cache,target=/root/.cache/uv \
-    uv sync --frozen --no-dev --no-editable
-
-# --- runtime ---
-FROM python:3.13-slim-trixie
-
+FROM python:3.13-slim-trixie AS runtime
 WORKDIR /app
-
 RUN groupadd --system --gid 1000 app \
     && useradd --system --uid 1000 --gid app --home /app app \
-    && mkdir -p /app/data \
-    && chown app:app /app/data
-
-COPY --from=builder --chown=app:app /app /app
-COPY --chown=app:app assets ./assets
-
+    && mkdir -p /app/data && chown app:app /app/data
+COPY --from=builder /app/.venv /app/.venv
+COPY --chown=app:app assets /app/assets
 ENV PATH="/app/.venv/bin:$PATH" \
-    PYTHONUNBUFFERED=1 \
-    PYTHONDONTWRITEBYTECODE=1 \
-    DATABASE_PATH=/app/data/akinator.db \
-    ASSETS_DIR=/app/assets/aki_pics
-
+    PYTHONUNBUFFERED=1 PYTHONDONTWRITEBYTECODE=1 \
+    DATABASE_PATH=/app/data/akinator.db ASSETS_DIR=/app/assets/aki_pics
 USER app
-
+HEALTHCHECK --interval=30s --timeout=5s --start-period=90s --retries=3 \
+    CMD ["python", "-m", "akinator_bot.health"]
 CMD ["akinator-bot"]
