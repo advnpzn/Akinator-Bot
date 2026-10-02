@@ -84,7 +84,7 @@ not an end-to-end Telegram/Akinator check or an automatic healing mechanism.
 ## Future scaling gates
 
 Measure CPU/RSS, active games, action latency, upstream errors, Telegram throttling,
-and SQLite latency on the Pi. Increase bounded concurrency only while all stay healthy.
+and SQLite latency on your deployment host. Increase bounded concurrency only while all stay healthy.
 If database/query latency becomes the bottleneck, add a repository adapter for PostgreSQL.
 Multiple bot workers also require supported session snapshots or game ownership routing,
 durable ingestion, distributed ordering, and coordinated outbound rate limiting. Simply

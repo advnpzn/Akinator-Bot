@@ -32,7 +32,7 @@ jobs:
           platforms: linux/amd64
           load: true
           tags: akinator-bot:test
-      - name: Test the non-root image under Pi resource ceilings
+      - name: Test the non-root image under configured resource ceilings
         run: >-
           docker run --rm --read-only
           --tmpfs /tmp:size=64m

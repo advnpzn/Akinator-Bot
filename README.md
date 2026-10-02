@@ -1,14 +1,14 @@
 # Akinator Bot
 
-A Telegram Akinator bot built for a Raspberry Pi 5 and other small Linux hosts.
+A resource-efficient Telegram Akinator bot for Linux hosts.
 Python 3.12+, akipy 1.7.0, python-telegram-bot 22.8, and SQLite with WAL.
 Private chats use Akinator's current question images; inline games use text.
 
-## Raspberry Pi deployment
+## Docker deployment
 
-Use a **64-bit OS** on the Pi 5, Docker Engine, and the Docker Compose plugin.
-The Dockerfile uses ARM64-compatible images and dependencies. Native builds on
-an SD card can be slow; an SSD is preferable for the database and Docker storage.
+Install Docker Engine and the Docker Compose plugin on your host.
+The Dockerfile supports both ARM64 and AMD64 Linux containers. Use persistent
+storage, preferably an SSD, for the database and Docker data.
 
 ```bash
 cp .env.example .env
@@ -24,8 +24,8 @@ external database is required. Only **one bot process** may use a token/database
 
 Defaults are ceilings, not allocations: 1 CPU, 512 MB RAM, 100 resident games,
 4 concurrent Akinator requests, and 16 concurrent updates. Idle CPU should be
-low because processing is asynchronous. Actual Pi memory/throughput must be
-measured on your device; resource limits do not promise a particular capacity.
+low because processing is asynchronous. Actual memory usage and throughput must be
+measured on your deployment host; resource limits do not promise a particular capacity.
 When admission is full, users receive a busy response; live games are not evicted.
 
 ```bash
@@ -60,7 +60,7 @@ docker compose -f docker-compose.yml -f deploy/compose.solver.yaml stop solver
 ```
 
 Inside a container, `127.0.0.1` means that container. It cannot reach a solver
-running directly on the Pi host. Supply a reachable address instead. Existing
+running directly on the Docker host. Supply a reachable address instead. Existing
 `AKIPY_SOLVER_URL` takes precedence over `SOLVER_URL`; remove stale settings.
 
 ## Development

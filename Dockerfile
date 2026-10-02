@@ -1,5 +1,5 @@
 # syntax=docker/dockerfile:1
-# Official Python and uv images support both ARM64 (Pi 5) and AMD64.
+# Official Python and uv images support both ARM64 and AMD64.
 FROM python:3.13-slim-trixie AS builder
 COPY --from=ghcr.io/astral-sh/uv:0.12.22 /uv /usr/local/bin/uv
 WORKDIR /app
