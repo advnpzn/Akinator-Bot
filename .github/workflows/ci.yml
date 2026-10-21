@@ -9,7 +9,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v6
         with:
-          version: '0.12.22'
+          version: '0.13.4'
       - run: uv sync --frozen --python 3.12
       - run: uv run --frozen ruff check .
       - run: uv run --frozen ruff format --check .

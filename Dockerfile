@@ -1,7 +1,10 @@
 # syntax=docker/dockerfile:1
 # Official Python and uv images support both ARM64 and AMD64.
 FROM python:3.13-slim-trixie AS builder
-COPY --from=ghcr.io/astral-sh/uv:0.12.22 /uv /usr/local/bin/uv
+COPY --from=ghcr.io/astral-sh/uv:0.13.4 /uv /usr/local/bin/uv
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
 ENV UV_PYTHON_DOWNLOADS=0 UV_LINK_MODE=copy UV_COMPILE_BYTECODE=1
 COPY pyproject.toml uv.lock README.md ./
@@ -13,7 +16,10 @@ RUN --mount=type=cache,target=/root/.cache/uv --mount=type=secret,id=build_ca \
 
 FROM python:3.13-slim-trixie AS runtime
 WORKDIR /app
-RUN groupadd --system --gid 1000 app \
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends ca-certificates \
+    && rm -rf /var/lib/apt/lists/* \
+    && groupadd --system --gid 1000 app \
     && useradd --system --uid 1000 --gid app --home /app app \
     && mkdir -p /app/data && chown app:app /app/data
 COPY --from=builder /app/.venv /app/.venv
